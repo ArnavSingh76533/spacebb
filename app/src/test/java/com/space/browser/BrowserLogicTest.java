@@ -15,6 +15,11 @@ public class BrowserLogicTest {
         assertFalse(BrowserLogic.webUrl("https://"));
         assertEquals("", BrowserLogic.resolve("   ", "Brave"));
     }
+    @Test public void permissionsRespectOrigins() {
+        assertEquals("https://example.com:443", BrowserLogic.origin("https://example.com/page"));
+        assertNotEquals(BrowserLogic.origin("https://example.com"),BrowserLogic.origin("http://example.com"));
+        assertNotEquals(BrowserLogic.origin("http://localhost:8080"),BrowserLogic.origin("http://localhost:9090"));
+    }
     @Test public void filtersRespectDomainBoundaries() {
         Set<String> rules = Set.of("doubleclick.net", "ads.example.com");
         assertTrue(BrowserLogic.matchesDomain("a.doubleclick.net", rules));

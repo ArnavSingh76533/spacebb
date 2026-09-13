@@ -14,6 +14,13 @@ public final class BrowserLogic {
         try { String h = URI.create(url).getHost(); return h == null ? "" : h.toLowerCase(Locale.ROOT); }
         catch (Exception e) { return ""; }
     }
+    public static String origin(String value) {
+        try { URI u=URI.create(value); if(!webUrl(value))return "";
+            String scheme=u.getScheme().toLowerCase(Locale.ROOT);
+            int port=u.getPort()<0?(scheme.equals("https")?443:80):u.getPort();
+            return scheme+"://"+u.getHost().toLowerCase(Locale.ROOT)+":"+port;
+        } catch(Exception ignored) { return ""; }
+    }
     public static boolean webUrl(String value) {
         try { URI u = URI.create(value); return ("https".equalsIgnoreCase(u.getScheme()) || "http".equalsIgnoreCase(u.getScheme())) && u.getHost() != null && u.getUserInfo() == null; }
         catch (Exception e) { return false; }

@@ -113,7 +113,7 @@ public class MainActivity extends Activity {
         addressRow=row();addressRow.setBackground(outlined(panel,20));
         LinearLayout.LayoutParams arp=new LinearLayout.LayoutParams(-1,dp(56));arp.topMargin=dp(6);chrome.addView(addressRow,arp);
         addressRow.addView(button("shield","Site shields",this::showShields),new LinearLayout.LayoutParams(dp(48),dp(48)));
-        address=new EditText(this);address.setId(1001);address.setTextColor(ink);address.setHintTextColor(muted);address.setTextSize(15);address.setSingleLine(true);address.setSelectAllOnFocus(true);
+        address=new EditText(this);address.setId(R.id.address_bar);address.setTextColor(ink);address.setHintTextColor(muted);address.setTextSize(15);address.setSingleLine(true);address.setSelectAllOnFocus(true);
         address.setHint("Search or enter address");address.setBackgroundColor(Color.TRANSPARENT);address.setPadding(0,0,0,0);address.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);address.setImeOptions(EditorInfo.IME_ACTION_GO);address.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
         addressRow.addView(address,new LinearLayout.LayoutParams(0,-1,1));
         addressRow.addView(button("refresh","Reload page",()->{if(current.web!=null&&!current.url.isEmpty())current.web.reload();}),new LinearLayout.LayoutParams(dp(48),dp(48)));
@@ -398,7 +398,7 @@ public class MainActivity extends Activity {
         }).show();
     }
     private void askSitePermission(PermissionRequest request){
-        if(pendingPermission!=null||current==null||!BrowserLogic.host(request.getOrigin().toString()).equals(current.site)){request.deny();return;}
+        if(pendingPermission!=null||current==null||!BrowserLogic.origin(request.getOrigin().toString()).equals(BrowserLogic.origin(current.url))){request.deny();return;}
         ArrayList<String> resources=new ArrayList<>();for(String r:request.getResources())if(r.equals(PermissionRequest.RESOURCE_AUDIO_CAPTURE)||r.equals(PermissionRequest.RESOURCE_VIDEO_CAPTURE))resources.add(r);
         if(resources.isEmpty()){request.deny();return;}
         pendingPermission=request;pendingResources=resources.toArray(new String[0]);String label=resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)?"camera":"";if(resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE))label+=(label.isEmpty()?"":" and ")+"microphone";
@@ -408,7 +408,7 @@ public class MainActivity extends Activity {
         }).show();
     }
     private void denyPending(){if(pendingPermission!=null)pendingPermission.deny();pendingPermission=null;pendingResources=null;}
-    private void grantPending(){if(pendingPermission!=null){if(current!=null&&BrowserLogic.host(pendingPermission.getOrigin().toString()).equals(current.site))pendingPermission.grant(pendingResources);else pendingPermission.deny();}pendingPermission=null;pendingResources=null;}
+    private void grantPending(){if(pendingPermission!=null){if(current!=null&&BrowserLogic.origin(pendingPermission.getOrigin().toString()).equals(BrowserLogic.origin(current.url)))pendingPermission.grant(pendingResources);else pendingPermission.deny();}pendingPermission=null;pendingResources=null;}
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){super.onRequestPermissionsResult(request,permissions,results);if(request==SITE_PERMISSIONS){boolean all=results.length>0;for(int r:results)all&=r==PackageManager.PERMISSION_GRANTED;if(all)grantPending();else denyPending();}}
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);if(request==UPLOAD&&uploadCallback!=null){ArrayList<Uri> uris=new ArrayList<>();if(result==RESULT_OK&&data!=null){if(data.getClipData()!=null){for(int i=0;i<data.getClipData().getItemCount();i++)uris.add(data.getClipData().getItemAt(i).getUri());}else if(data.getData()!=null)uris.add(data.getData());}uploadCallback.onReceiveValue(uris.isEmpty()?null:uris.toArray(new Uri[0]));uploadCallback=null;}

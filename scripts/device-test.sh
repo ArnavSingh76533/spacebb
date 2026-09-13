@@ -11,3 +11,14 @@ if ! grep -q 'OK (1 test)' device-results/instrumentation.txt; then
   exit 1
 fi
 # Also check the minified, non-debuggable APK boots in a clean install.
+adb uninstall com.space.browser
+adb install release-apk/Space-Browser.apk
+adb shell am start -W -n com.space.browser/.MainActivity > device-results/release-launch.txt
+adb shell uiautomator dump /sdcard/space-release.xml
+adb pull /sdcard/space-release.xml device-results/release-ui.xml
+if ! grep -q 'Search or enter address' device-results/release-ui.xml; then
+  adb logcat -d > device-results/release-logcat.txt
+  echo 'Release browser home did not render'
+  exit 1
+fi
+adb exec-out screencap -p > device-results/release-home.png

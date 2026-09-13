@@ -34,7 +34,7 @@ public final class BrowserSmokeTest extends InstrumentationTestCase {
         getInstrumentation().waitForIdleSync();
         assertNotNull(find(activity.getWindow().getDecorView(),"Browser menu"));
         screenshot("01-home-dark.png");
-        final EditText input=activity.findViewById(1001);assertNotNull(input);
+        final EditText input=activity.findViewById(R.id.address_bar);assertNotNull(input);
         getInstrumentation().runOnMainSync(()->{input.setText("http://127.0.0.1:"+server.getLocalPort()+"/");input.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_GO);});
         WebView web=null;
         for(int i=0;i<60;i++){Thread.sleep(200);AtomicReference<WebView> found=new AtomicReference<>();getInstrumentation().runOnMainSync(()->found.set(findWeb(activity.getWindow().getDecorView())));web=found.get();if(web!=null){AtomicReference<String> title=new AtomicReference<>();final WebView w=web;getInstrumentation().runOnMainSync(()->title.set(w.getTitle()));if("Space test page".equals(title.get()))break;}}
@@ -71,7 +71,13 @@ public final class BrowserSmokeTest extends InstrumentationTestCase {
         Thread.sleep(500);
         assertTrue(android.webkit.CookieManager.getInstance().getCookie("http://127.0.0.1:"+server.getLocalPort()).contains("space_session=normal"));
         getInstrumentation().getTargetContext().getSharedPreferences("space",0).edit().putBoolean("dark",false).commit();
-        getInstrumentation().runOnMainSync(()->activity.recreate());getInstrumentation().waitForIdleSync();Thread.sleep(500);screenshot("06-light.png");
+        getInstrumentation().runOnMainSync(()->{try{
+            java.lang.reflect.Field theme=MainActivity.class.getDeclaredField("dark");theme.setAccessible(true);theme.set(activity,false);
+            java.lang.reflect.Method shell=MainActivity.class.getDeclaredMethod("buildShell");shell.setAccessible(true);shell.invoke(activity);
+            java.lang.reflect.Field tab=MainActivity.class.getDeclaredField("current");tab.setAccessible(true);
+            java.lang.reflect.Method select=MainActivity.class.getDeclaredMethod("switchTab",MainActivity.Tab.class);select.setAccessible(true);select.invoke(activity,tab.get(activity));
+        }catch(Exception e){throw new RuntimeException(e);}});
+        getInstrumentation().waitForIdleSync();screenshot("06-light.png");
     }
     private View find(View v,String description){if(description.contentEquals(v.getContentDescription()==null?"":v.getContentDescription()))return v;if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++){View found=find(((ViewGroup)v).getChildAt(i),description);if(found!=null)return found;}return null;}
     private WebView findWeb(View v){if(v instanceof WebView)return (WebView)v;if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++){WebView w=findWeb(((ViewGroup)v).getChildAt(i));if(w!=null)return w;}return null;}
