@@ -1,0 +1,37 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.space.browser'
+    compileSdk 35
+    useLibrary 'android.test.runner', false
+    useLibrary 'android.test.base', false
+    defaultConfig {
+        applicationId 'com.space.browser'
+        minSdk 29
+        targetSdk 35
+        versionCode 1
+        versionName '1.0.0'
+        testInstrumentationRunner 'android.test.InstrumentationTestRunner'
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.debug
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    lint { abortOnError true; checkReleaseBuilds true }
+}
+dependencies { testImplementation 'junit:junit:4.13.2' }
+
+// Never produce an APK that silently ships without its protection list.
+tasks.register('verifyFilterAsset') {
+    doLast {
+        def filters = file('src/main/assets/hosts.txt')
+        if (!filters.exists() || filters.length() < 1000000) {
+            throw new GradleException('Run python3 scripts/prepare-filters.py before building')
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn('verifyFilterAsset') }
