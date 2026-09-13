@@ -23,7 +23,7 @@ public final class BrowserSmokeTest extends InstrumentationTestCase {
         super.tearDown();
     }
     public void testBrowserJourney() throws Exception {
-        server=new ServerSocket(0,8,InetAddress.getLoopbackAddress());
+        server=new ServerSocket(0,8,InetAddress.getByName("127.0.0.1"));
         new Thread(()->{while(!server.isClosed())try(Socket socket=server.accept()){
             BufferedReader in=new BufferedReader(new InputStreamReader(socket.getInputStream()));String first=in.readLine();String line;String cookie="";while((line=in.readLine())!=null&&!line.isEmpty()){if(line.toLowerCase().startsWith("cookie:"))cookie=line;}
             if(first!=null&&first.contains("/private"))privateCookie.set(cookie);

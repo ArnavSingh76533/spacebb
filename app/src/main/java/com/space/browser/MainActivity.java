@@ -163,11 +163,11 @@ public class MainActivity extends Activity {
         LinearLayout heading=row();TextView brand=text("space",25,ink,true);brand.setLetterSpacing(-.04f);heading.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
         TextView badge=text(privateMode()?"●  PRIVATE":"✦  YOUR SPACE",10,accent,true);badge.setLetterSpacing(.12f);badge.setPadding(dp(12),dp(9),dp(12),dp(9));badge.setBackground(outlined(panel,20));heading.addView(badge);content.addView(heading);
         gap(content,18);
-        FrameLayout hero=new FrameLayout(this);hero.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{dark?0xFF201B35:0xFFEDE7FA,bg}));
-        hero.addView(new OrbitView(this),new FrameLayout.LayoutParams(-1,dp(170),Gravity.TOP));
-        LinearLayout heroText=column();heroText.setPadding(dp(4),dp(161),dp(4),dp(18));
+        FrameLayout hero=new FrameLayout(this);GradientDrawable heroBackground=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{dark?0xFF201B35:0xFFEDE7FA,bg});heroBackground.setCornerRadius(dp(22));hero.setBackground(heroBackground);hero.setClipToOutline(true);
+        hero.addView(new OrbitView(this),new FrameLayout.LayoutParams(-1,dp(116),Gravity.TOP));
+        LinearLayout heroText=column();heroText.setPadding(dp(12),dp(108),dp(12),dp(16));
         TextView eyebrow=text(privateMode()?"LEAVE LESS BEHIND":"A LITTLE LESS NOISE.",10,accent,true);eyebrow.setLetterSpacing(.2f);heroText.addView(eyebrow);gap(heroText,9);
-        TextView title=text(privateMode()?"Just you.\nAnd the web.":"More space.\nMore possibility.",36,ink,true);title.setLetterSpacing(-.045f);title.setLineSpacing(dp(0),1.03f);heroText.addView(title);gap(heroText,10);
+        TextView title=text(privateMode()?"Just you.\nAnd the web.":"More space.\nMore possibility.",34,ink,true);title.setLetterSpacing(-.045f);title.setLineSpacing(dp(0),1.03f);heroText.addView(title);gap(heroText,10);
         heroText.addView(text(privateMode()?"Separate session. No saved history.":"A lighter browser for a curious mind.",14,muted,false));hero.addView(heroText,new FrameLayout.LayoutParams(-1,-2));content.addView(hero,new LinearLayout.LayoutParams(-1,-2));
         gap(content,18);LinearLayout shortcutHeading=row();TextView quick=text("QUICK LAUNCH",10,muted,true);quick.setLetterSpacing(.15f);shortcutHeading.addView(quick,new LinearLayout.LayoutParams(0,-2,1));
         TextView edit=text("Bookmarks  ›",12,accent,true);edit.setPadding(dp(8),dp(12),0,dp(12));edit.setOnClickListener(v->showEntries("bookmarks"));shortcutHeading.addView(edit);content.addView(shortcutHeading);
@@ -216,7 +216,7 @@ public class MainActivity extends Activity {
                 if(!privateMode()&&BrowserLogic.webUrl(url)&&!clearing)store.add("history",t.title,url,500);saveSession();
             }
             @Override public void onReceivedSslError(WebView view,SslErrorHandler ssl,SslError error){ssl.cancel();if(t==current)toast("Connection blocked: this site's certificate is not valid.");}
-            @Override public void onReceivedError(WebView view,WebResourceRequest request,WebResourceError error){if(request.isForMainFrame()&&t==current)toast("Page could not load. Check the address or your connection.");}
+            @Override public void onReceivedError(WebView view,WebResourceRequest request,WebResourceError error){append(t.console,"LOAD ERROR "+error.getErrorCode()+" "+error.getDescription()+" "+request.getUrl(),150);if(request.isForMainFrame()&&t==current)toast("Page could not load. Check the address or your connection.");}
             @Override public boolean onRenderProcessGone(WebView view,RenderProcessGoneDetail detail){
                 if(view.getParent()!=null)((ViewGroup)view.getParent()).removeView(view);view.destroy();t.web=null;if(t==current){toast("This tab stopped. Reloading it now.");switchTab(t);}return true;
             }

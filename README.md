@@ -8,7 +8,7 @@ Open [Releases](https://github.com/ArnavSingh76533/spacebb/releases) and downloa
 
 Alternatively, open [Actions → Build Space Browser APK](https://github.com/ArnavSingh76533/spacebb/actions/workflows/android.yml), choose a successful run and download **Space-Browser-APK** under Artifacts. Unzip it to get the APK and its SHA-256 checksum. GitHub requires you to be signed in for Actions artifact downloads.
 
-Every push to `main` runs unit tests, Android lint, release shrinking and an Android emulator smoke test. A preview release is published only after those jobs pass. You can also use **Run workflow** in Actions.
+Every push to `main` runs unit tests, Android lint, release shrinking and Android 10 and Android 15 emulator smoke tests. A preview release is published only after those jobs pass. You can also use **Run workflow** in Actions.
 
 ## Features
 

@@ -5,6 +5,8 @@ import android.graphics.*;
 import android.view.View;
 
 final class SpaceIcon extends View {
+    private final Paint drawPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path glyphPath = new Path();
     private final String name;
     private final int color;
     SpaceIcon(Context context, String name, int color) { super(context); this.name=name; this.color=color; setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); }
@@ -13,7 +15,7 @@ final class SpaceIcon extends View {
         canvas.save();
         float scale = Math.min(getWidth(), getHeight()) / 24f;
         canvas.translate((getWidth()-24*scale)/2, (getHeight()-24*scale)/2); canvas.scale(scale,scale);
-        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG); p.setColor(color); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(1.7f); p.setStrokeCap(Paint.Cap.ROUND); p.setStrokeJoin(Paint.Join.ROUND);
+        Paint p = drawPaint; p.setColor(color); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(1.7f); p.setStrokeCap(Paint.Cap.ROUND); p.setStrokeJoin(Paint.Join.ROUND);
         switch(name) {
             case "back": path(canvas,p,15,5,8,12,15,19); break;
             case "next": case "arrow": path(canvas,p,9,5,16,12,9,19); break;
@@ -39,5 +41,5 @@ final class SpaceIcon extends View {
         }
         canvas.restore();
     }
-    private static void path(Canvas c, Paint p, float... pts) { Path path=new Path(); path.moveTo(pts[0],pts[1]); for(int i=2;i<pts.length;i+=2)path.lineTo(pts[i],pts[i+1]); c.drawPath(path,p); }
+    private void path(Canvas c, Paint p, float... pts) { Path path=glyphPath; path.reset(); path.moveTo(pts[0],pts[1]); for(int i=2;i<pts.length;i+=2)path.lineTo(pts[i],pts[i+1]); c.drawPath(path,p); }
 }
