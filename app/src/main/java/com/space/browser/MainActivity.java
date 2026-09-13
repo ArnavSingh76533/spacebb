@@ -102,7 +102,7 @@ public class MainActivity extends Activity {
         muted=Color.parseColor(dark?"#9195AA":"#706A80");line=Color.parseColor(dark?"#272B3A":"#E6E1EF");accent=Color.parseColor(dark?"#B5A0FF":"#7050CD");
     }
     private void buildShell() {
-        palette();getWindow().setStatusBarColor(bg);getWindow().setNavigationBarColor(bg);
+        palette();if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);getWindow().setStatusBarColor(bg);getWindow().setNavigationBarColor(bg);
         getWindow().getDecorView().setSystemUiVisibility(dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         root=column();root.setBackgroundColor(bg);root.setFitsSystemWindows(true);setContentView(root);
         if (Build.VERSION.SDK_INT >= 30) root.setOnApplyWindowInsetsListener((v,insets)->{android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.ime());v.setPadding(bars.left,bars.top,bars.right,bars.bottom);return WindowInsets.CONSUMED;});

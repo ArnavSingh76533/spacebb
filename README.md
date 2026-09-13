@@ -2,6 +2,14 @@
 
 A small, native Android browser with an original orbital identity, a bottom address bar and a quieter browsing experience. Built for Android 10+ using the device's Android System WebView; it does not bundle another Chromium engine.
 
+## Screenshots
+
+Captured from the actual app on an Android 15 emulator.
+
+| Dark | Light | Developer tools |
+| --- | --- | --- |
+| <img src="docs/screenshots/home-dark.png" width="240" alt="Space Browser dark home"> | <img src="docs/screenshots/home-light.png" width="240" alt="Space Browser light home"> | <img src="docs/screenshots/developer-tools.png" width="240" alt="On-device developer console"> |
+
 ## Download the APK
 
 Open [Releases](https://github.com/ArnavSingh76533/spacebb/releases) and download **Space-Browser.apk** from the newest preview. Allow installation from the app you use to open the APK if Android asks.

@@ -34,6 +34,11 @@ public final class BrowserSmokeTest extends InstrumentationTestCase {
         getInstrumentation().waitForIdleSync();
         assertNotNull(find(activity.getWindow().getDecorView(),"Browser menu"));
         screenshot("01-home-dark.png");
+        java.lang.reflect.Field filters=MainActivity.class.getDeclaredField("shields");filters.setAccessible(true);
+        ShieldEngine engine=(ShieldEngine)filters.get(activity);
+        assertTrue("The bundled rules must block known ad domains",engine.blocked("https://doubleclick.net/banner.js"));
+        assertFalse(engine.blocked("https://en.wikipedia.org/"));
+        assertTrue("Full offline filter list must be present",engine.size()>50000);
         final EditText input=activity.findViewById(R.id.address_bar);assertNotNull(input);
         getInstrumentation().runOnMainSync(()->{input.setText("http://127.0.0.1:"+server.getLocalPort()+"/");input.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_GO);});
         WebView web=null;
