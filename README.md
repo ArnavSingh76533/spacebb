@@ -10,6 +10,14 @@ Captured from the actual app on an Android 15 emulator.
 | --- | --- | --- |
 | <img src="docs/screenshots/home-dark.png" width="240" alt="Space Browser dark home"> | <img src="docs/screenshots/home-light.png" width="240" alt="Space Browser light home"> | <img src="docs/screenshots/developer-tools.png" width="240" alt="Live network inspector"> |
 
+| Request headers + POST data | Decoded response | Space AI |
+| --- | --- | --- |
+| <img src="docs/screenshots/network-request.png" width="240" alt="Captured request headers and POST data"> | <img src="docs/screenshots/network-response.png" width="240" alt="Decoded JSON response"> | <img src="docs/screenshots/space-ai.png" width="240" alt="Space AI with context controls"> |
+
+| Overview | Search | Popup mode |
+| --- | --- | --- |
+| <img src="docs/screenshots/network-overview.png" width="240" alt="Request overview and timing"> | <img src="docs/screenshots/network-search.png" width="240" alt="All matching requests in network search"> | <img src="docs/screenshots/network-popup.png" width="240" alt="Network inspector as a popup"> |
+
 ## Download the APK
 
 Open [Releases](https://github.com/ArnavSingh76533/spacebb/releases) and download **Space-Browser.apk** from the newest preview. Allow installation from the app you use to open the APK if Android asks.
