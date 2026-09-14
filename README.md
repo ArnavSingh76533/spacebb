@@ -1,10 +1,10 @@
 # Space Browser
 
-A small, native Android browser with an original orbital identity, a bottom address bar and a quieter browsing experience. Built for Android 10+ using the device's Android System WebView; it does not bundle another Chromium engine.
+A small, native Android browser with an original orbital identity, a central home search box and top browsing address bar and a quieter browsing experience. Built for Android 10+ using the device's Android System WebView; it does not bundle another Chromium engine.
 
 ## Screenshots
 
-Captured from the actual app on an Android 15 emulator.
+These screenshots show the previous 1.1 layout. Fresh 1.2 screenshots are included in the Android emulator artifacts for each Actions run.
 
 | Dark | Light | Developer tools |
 | --- | --- | --- |
@@ -28,8 +28,8 @@ Every push to `main` runs unit tests, Android lint, release shrinking and Androi
 
 ## Features
 
-- Original dark and light themes, vector planet artwork, large touch targets and a bottom address/search bar.
-- Up to 30 tabs; at most four WebViews are kept live. Other tabs sleep and reload when selected. Regular tab URLs survive app restarts.
+- Original dark and light themes, vector planet artwork, large touch targets and a central home search box that moves into the top toolbar when browsing, with no bottom loading strip.
+- Up to 30 tabs; up to four idle/foreground WebViews are kept live, with actively playing tabs retained in addition. Other tabs sleep and reload when selected. Regular tab URLs survive app restarts.
 - Local domain-based ad/tracker/malware filtering from a bundled StevenBlack unified-hosts snapshot, with per-site exceptions and real blocked-request counts.
 - Private browsing in a separate Android process and separate WebView data directory; no saved history, bookmarks or restored tabs. Screenshots and recents previews are protected.
 - Bookmarks, local browsing history (latest 500), page search, article reading view, mobile/desktop user agent, share and long-press link actions.
@@ -38,7 +38,9 @@ Every push to `main` runs unit tests, Android lint, release shrinking and Androi
 - Default-browser registration, clear browsing data and a JavaScript toggle.
 - Native network inspector: automatic capture, live request list, Overview / Request / Response, headers and POST data, response bodies, Text / Hex / Raw views, decoding, images, JSON tree, search and timing waterfall. **Console and Run JavaScript have been removed.**
 - Developer tools open as a native browser tab by default, or a saved popup preference. Filter across one tab or all tabs, pin items, compare two captures, import/export HAR, copy as cURL/Fetch/Python, and explicitly edit/resend a request.
-- Space AI: streaming chat through the supplied gateway (`model: auto`, no automatic retries), selectable capture context, default credential masking, context preview and key replacement/removal.
+- Space AI: streaming chat through the supplied gateway (default model `auto`, editable in Settings → AI settings), continuous saved regular chat, session-only private chat, Markdown/bold text and exact-copy fenced code blocks. The composer resizes above the keyboard. Original capture data is included by default; untick **Send original headers and data** to mask common credentials. Review context shows what will be attached.
+- AI context choices include all captured requests and responses, request summaries, selected POST/request and response bodies, selected full headers and bodies, or current search results.
+- Background playback is enabled by default in Settings. Active HTML audio/video keeps its WebView running when the app is minimized, with a foreground media notification. Closing the playing tab, stopping playback, clearing data or closing the app releases playback.
 
 ## Lightweight by design
 
@@ -54,7 +56,7 @@ Normal history, bookmarks and session URLs are stored in app-private preferences
 
 ## Honest limits
 
-This is a WebView-based browser, not a Brave/Chromium fork. Domain filters cannot block all first-party or video ads (including many YouTube ads), and this version does not implement full EasyList cosmetic filtering, extension support, sync, a password manager, VPN or a custom engine-level anti-fingerprinting system. Background media behavior depends on WebView, the website and Android; no background-play guarantee is made.
+This is a WebView-based browser, not a Brave/Chromium fork. Domain filters cannot block all first-party or video ads (including many YouTube ads), and this version does not implement full EasyList cosmetic filtering, extension support, sync, a password manager, VPN or a custom engine-level anti-fingerprinting system. Background playback covers detectable HTML audio/video in the page and accessible same-origin frames. Sites that pause their own player, cross-origin embedded players, DRM policies, force-stop and manufacturer battery restrictions can prevent continuation. This is not a separate media downloader.
 
 The inspector uses the real WebView Chrome DevTools Protocol (CDP), without injecting a fetch/XHR shim or replaying requests to obtain responses. The provider controls which events, headers and bodies it exposes. Chromium-decoded response content is available, **not exact compressed HTTP/2 or HTTP/3 wire bytes**. Raw is clearly labeled as a browser representation. Multipart upload file contents, redirect response bodies, evicted resources, some worker traffic and streaming media may be unavailable; notes identify missing/truncated data. New popup windows attach after their initial navigation; reload them for a complete trace.
 
@@ -81,11 +83,11 @@ The release build is minified and non-debuggable but signed with a **development
 
 Network capture is on by default as requested and enables this process's WebView debugger. The in-app inspector connects through an abstract Unix socket; Space does not create a TCP debugging port. Authorized ADB debugging clients can also inspect WebViews while capture is enabled. Disable **Settings → Network capture** to turn off capture/debugging.
 
-The explicitly requested temporary gateway key is included in this preview's source and APK. **Space AI → API key** replaces it or removes it (save an empty value). Revoke the preview credential when you finish testing. AI requests are sent only after pressing Send. Common credential fields are masked by default, but arbitrary response content may still be private: Review context shows the exact capture text to be sent. Full HAR exports, clipboard copies and shares preserve sensitive data.
+The explicitly requested temporary gateway key is included in this preview's source and APK. **Settings → AI settings → API key** replaces it or removes it (save an empty value). Revoke the preview credential when you finish testing. AI requests are sent only after pressing Send. Original captured data is sent by default as requested. Unticking **Send original headers and data** masks common credential fields in capture context and earlier chat turns; Review context shows the attached capture text. Full HAR exports, clipboard copies and shares preserve sensitive data.
 
 ## Tests and filter attribution
 
-Pure JVM tests exercise URL handling and domain-boundary matching. The device test loads an offline HTTP fixture in the actual Android WebView and checks initial-document capture, real User-Agent/custom headers, JSON POST data, response headers/bodies, gzip decoding, binary bytes, redirect hops, search matching, HAR round-trip, credential masking, disk spill/cleanup, pins, native tab/popup layouts, secure settings and private-cookie isolation. It captures the actual application screens. Reports and screenshots are attached to Actions runs.
+Pure JVM tests exercise URL handling and domain-boundary matching. The device test loads an offline HTTP fixture in the actual Android WebView and checks initial-document capture, real User-Agent/custom headers, JSON POST data, response headers/bodies, gzip decoding, binary bytes, redirect hops, search matching, HAR round-trip, credential masking, disk spill/cleanup, pins, native tab/popup layouts, secure settings and private-cookie isolation. Version 1.2 adds assertions for top-bar placement, context POST/response inclusion, saved conversation/model selection, Markdown/copy-code, composer visibility with the keyboard and actual audio time advancing after HOME. It captures the actual application screens. Reports and screenshots are attached to Actions runs.
 
 `app/src/main/assets/filter-source.txt` identifies the exact filter snapshot. The unmodified hosts file retains its attribution header; root and constituent-source licenses are included in `app/src/main/assets/hosts-license.txt` and `third_party/hosts/`. Review upstream changes before replacing this snapshot. Filters do not silently update at runtime.
 
@@ -98,6 +100,6 @@ Space Browser code is MIT licensed. Gradle wrapper files retain their Apache 2.0
 - `CaptureStorage`: lazy app-private body spill files over 64 KiB, with total retention limits. Up to 2,000 entries per tab (configurable 50–2,000); old unpinned entries drop first. Pins survive Clear, but cannot override the configured hard bounds.
 - `NetworkInspector`: native recycled `ListView` rows; background search and batched updates about every 150 ms; selectable details, copy/export, side-by-side line comparison, timing and JSON exploration. Full bodies are loaded only for formatting, search or export. Text/hex previews have smaller display limits.
 - `NetworkFormats`: charset-aware text, JSON, form, multipart, Base64, URL, JWT, gzip/deflate, chunked, binary views and HAR 1.2 import/export. Missing timings use unavailable values; CDP timing metadata is retained in a Space extension.
-- `SpaceAi`: lightweight HTTPS/SSE client for the supplied gateway. All/filtered requests send summaries; a selected request sends headers and decoded bodies. Context is capped at 20,000 characters per item and 60,000 total, with explicit truncation notes. Chat history is bounded; Stop/Close cancels the connection. No analytics or automatic capture uploads.
+- `SpaceAi`: lightweight HTTPS/SSE client for the supplied gateway. All captures can send full request/response detail or summaries; selected captures can send bodies only or full headers and decoded bodies. Context is bounded at 6,000 characters per header section, 10,000 per body and 120,000 total, with visible omission/truncation notes. Regular chat retains up to 64 messages / 384,000 characters locally; each outgoing request includes up to 80,000 characters of recent history, shortening old capture attachments first. Private chat is memory-only. Stop/Close cancels the connection. No analytics or automatic capture uploads.
 
 The inspector covers traffic exposed by the selected Android System WebView, not device-wide UDP/TCP traffic from other apps. It needs neither a VPN service nor an installed interception certificate. Keep Android System WebView updated.

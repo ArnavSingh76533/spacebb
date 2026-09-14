@@ -86,6 +86,16 @@ public final class BrowserSmokeTest extends InstrumentationTestCase {
         getInstrumentation().runOnMainSync(()->{android.widget.ListView requests=findList(activity.getWindow().getDecorView());assertNotNull(requests);assertTrue(requests.getCount()>0);int selected=0;for(int i=0;i<requests.getCount();i++)if(((NetworkInspector.Item)requests.getAdapter().getItem(i)).record.url.endsWith("/api")){selected=i;break;}requests.performItemClick(requests.getChildAt(0),selected,selected);});
         screenshot("07-network-overview.png");
         getInstrumentation().runOnMainSync(()->findText(activity.getWindow().getDecorView(),"Request").performClick());screenshot("08-network-request.png");
+        getInstrumentation().runOnMainSync(()->{try{
+            NetworkInspector inspector=((MainActivity.Tab)activeTab.get(activity)).inspector;assertNotNull(inspector);
+            java.lang.reflect.Field scrollField=NetworkInspector.class.getDeclaredField("detailScroll");scrollField.setAccessible(true);android.widget.ScrollView detail=(android.widget.ScrollView)scrollField.get(inspector);
+            android.graphics.Rect bounds=new android.graphics.Rect();detail.getDrawingRect(bounds);inspector.offsetDescendantRectToMyCoords(detail,bounds);
+            float density=activity.getResources().getDisplayMetrics().density,x=bounds.centerX(),y=bounds.bottom-20*density;long now=android.os.SystemClock.uptimeMillis();
+            android.view.MotionEvent down=android.view.MotionEvent.obtain(now,now,android.view.MotionEvent.ACTION_DOWN,x,y,0),move=android.view.MotionEvent.obtain(now,now+100,android.view.MotionEvent.ACTION_MOVE,x-120*density,y-220*density,0),up=android.view.MotionEvent.obtain(now,now+150,android.view.MotionEvent.ACTION_UP,x-120*density,y-220*density,0);
+            inspector.dispatchTouchEvent(down);inspector.dispatchTouchEvent(move);inspector.dispatchTouchEvent(up);down.recycle();move.recycle();up.recycle();
+            java.lang.reflect.Field section=NetworkInspector.class.getDeclaredField("section");section.setAccessible(true);assertEquals("Diagonal vertical scroll must not switch Request/Response",1,section.getInt(inspector));assertTrue("Inspector remains attached",inspector.isAttachedToWindow());assertSame("Scroll does not recreate detail view",detail,scrollField.get(inspector));
+        }catch(Exception e){throw new RuntimeException(e);}});
+
         getInstrumentation().runOnMainSync(()->{findText(activity.getWindow().getDecorView(),"Response").performClick();findText(activity.getWindow().getDecorView(),"Text").performClick();});screenshot("09-network-response.png");
         getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
         
