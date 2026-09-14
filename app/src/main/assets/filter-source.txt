@@ -1,0 +1,7 @@
+StevenBlack unified hosts (base: ads, trackers, malware)
+Source: https://github.com/StevenBlack/hosts
+Commit: 83dd698bbcdcb8c11a7796af7188d7ab4ccd02f1
+Snapshot: 2026-09-14 UTC
+Unmodified unified hosts, including source attribution headers.
+Root license: hosts-license.txt
+See upstream data/*/readme.md for constituent source licensing.

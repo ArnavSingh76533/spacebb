@@ -1,0 +1,11 @@
+.gradle/
+**/build/
+local.properties
+*.jks
+*.keystore
+.idea/
+*.iml
+captures/
+
+# Pinned, checksum-verified build input (see scripts/prepare-filters.py).
+/app/src/main/assets/hosts.txt
