@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class NetworkRecorder implements AutoCloseable {
     static final int BODY_LIMIT=2*1024*1024, TOTAL_BODY_LIMIT=12*1024*1024, RECORD_LIMIT=2000;
     private final ArrayList<NetworkRecord> records=new ArrayList<>();
+    private final Set<String> blockedUrls=new LinkedHashSet<>();
     private final Map<String,Chain> chains=new LinkedHashMap<>();
     private CdpSocket cdp=new CdpSocket();
     private volatile boolean closed,connected,paused,disposed;
@@ -18,7 +19,8 @@ final class NetworkRecorder implements AutoCloseable {
     boolean paused(){return paused;}
     synchronized void pin(long id){for(NetworkRecord r:records)if(r.id==id)r.pinned=!r.pinned;revision++;}
     synchronized void addImported(NetworkRecord r){if(disposed)return;r.complete=true;records.add(r);sequence=Math.max(sequence,r.id);setBody(r,true,r.requestBytes(),r.requestBodyNote);setBody(r,false,r.responseBytes(),r.responseBodyNote);trim();revision++;}
-    synchronized void markBlocked(String url){for(int i=records.size()-1;i>=0;i--){NetworkRecord r=records.get(i);if(r.url.equals(url)){r.blocked=true;r.error="Blocked by Space shields";revision++;return;}}}
+    synchronized void markBlocked(String url){if(paused||closed)return;for(int i=records.size()-1;i>=0;i--){NetworkRecord r=records.get(i);if(r.url.equals(url)&&!r.complete){r.blocked=true;r.error="Blocked by Space shields";revision++;return;}}blockedUrls.add(url);while(blockedUrls.size()>RECORD_LIMIT)blockedUrls.remove(blockedUrls.iterator().next());}
+
 
     private volatile String state="Connecting to browser capture…";
     private long sequence,revision;
@@ -28,7 +30,7 @@ final class NetworkRecorder implements AutoCloseable {
     synchronized long revision(){return revision;}
     synchronized List<NetworkRecord> snapshots(){List<NetworkRecord> list=new ArrayList<>();for(int i=records.size()-1;i>=0;i--)list.add(records.get(i).copy());return list;}
     synchronized NetworkRecord get(long id){for(NetworkRecord r:records)if(r.id==id)return r.copy();return null;}
-    synchronized void clear(){for(NetworkRecord r:records)if(!r.pinned){r.discardBody(true);r.discardBody(false);}records.removeIf(r->!r.pinned);chains.clear();revision++;}
+    synchronized void clear(){for(NetworkRecord r:records)if(!r.pinned){r.discardBody(true);r.discardBody(false);}records.removeIf(r->!r.pinned);chains.clear();blockedUrls.clear();revision++;}
     void attach(String marker,Runnable ready){
         cdp.close();cdp=new CdpSocket();closed=false;paused=false;final CdpSocket transport=cdp;
         AtomicBoolean released=new AtomicBoolean();Runnable release=()->{if(released.compareAndSet(false,true))ready.run();};
@@ -77,7 +79,7 @@ final class NetworkRecorder implements AutoCloseable {
         }
         revision++;
     }
-    private void add(Chain chain,NetworkRecord r){chain.hops.add(r);records.add(r);trim();}
+    private void add(Chain chain,NetworkRecord r){if(blockedUrls.remove(r.url)){r.blocked=true;r.error="Blocked by Space shields";}chain.hops.add(r);records.add(r);trim();}
     private void trim(){while(records.size()>limit){int index=-1;for(int i=0;i<records.size();i++)if(!records.get(i).pinned){index=i;break;}if(index<0)index=0;NetworkRecord old=records.remove(index);old.discardBody(true);old.discardBody(false);String key=old.session+"|"+old.requestId;Chain c=chains.get(key);if(c!=null){c.hops.remove(old);if(c.hops.isEmpty())chains.remove(key);}}}
     private void response(NetworkRecord r,JSONObject response){if(response==null)return;r.finalUrl=response.optString("url",r.url);r.timing=response.optJSONObject("timing")==null?"":response.optJSONObject("timing").toString();r.status=response.optInt("status");r.statusText=response.optString("statusText");r.protocol=response.optString("protocol");r.mime=response.optString("mimeType");r.remoteAddress=response.optString("remoteIPAddress");if(response.has("remotePort"))r.remoteAddress+=":"+response.optInt("remotePort");r.fromCache=response.optBoolean("fromDiskCache")||response.optBoolean("fromServiceWorker")||response.optBoolean("fromPrefetchCache")||r.fromCache;merge(r.responseHeaders,response.optJSONObject("headers"));merge(r.requestHeaders,response.optJSONObject("requestHeaders"));r.requestHeadersText=response.optString("requestHeadersText",r.requestHeadersText);r.responseHeadersText=response.optString("headersText",r.responseHeadersText);}
     /** Extra-info events may arrive before the request/response and across reused redirect IDs. */
@@ -99,7 +101,7 @@ final class NetworkRecorder implements AutoCloseable {
         for(NetworkRecord r:records){if(total<=TOTAL_BODY_LIMIT)break;if(r==record||r.pinned)continue;total-=r.requestSize()+r.responseSize();if(r.requestSize()>0){r.discardBody(true);r.requestBodyNote="Body evicted to keep capture within its 12 MiB retained-body budget.";}if(r.responseSize()>0){r.discardBody(false);r.responseBodyNote="Body evicted to keep capture within its 12 MiB retained-body budget.";}}
         if(total>TOTAL_BODY_LIMIT){record.discardBody(request);if(request)record.requestBodyNote="Body omitted: pinned items exhausted the capture budget";else record.responseBodyNote="Body omitted: pinned items exhausted the capture budget";}
     }
-    synchronized void dispose(){disposed=true;close();for(NetworkRecord r:records){r.discardBody(true);r.discardBody(false);}records.clear();chains.clear();revision++;}
+    synchronized void dispose(){disposed=true;close();for(NetworkRecord r:records){r.discardBody(true);r.discardBody(false);}records.clear();chains.clear();blockedUrls.clear();revision++;}
     private void closeTransport(){connected=false;cdp.close();}
     @Override public void close(){closed=true;connected=false;state="Capture stopped";cdp.close();}
 }

@@ -139,7 +139,7 @@ public class MainActivity extends Activity {
         Tab t=new Tab();t.url=url;tabs.add(t);switchTab(t);
     }
     private void switchTab(Tab t) {
-        if(current!=null&&current.web!=null&&t.inspected!=current)current.web.onPause();
+        Tab previous=current==null?null:(current.web!=null?current:current.inspected);if(previous!=null&&previous.web!=null&&t!=previous&&t.inspected!=previous)previous.web.onPause();
         stage.removeAllViews();current=t;
         if(t.inspector!=null){if(t.inspector.getParent()!=null)((ViewGroup)t.inspector.getParent()).removeView(t.inspector);stage.addView(t.inspector,new FrameLayout.LayoutParams(-1,-1));if(t.inspected!=null&&t.inspected.web!=null)t.inspected.web.onResume();}else if(t.url.isEmpty())showHome();else{ensureWeb(t);stage.addView(t.web,new FrameLayout.LayoutParams(-1,-1));t.web.onResume();}
         trimTabs();updateChrome();saveSession();
@@ -270,8 +270,8 @@ public class MainActivity extends Activity {
     private void goBack(){if(current!=null&&current.inspector!=null){Tab inspected=current.inspected;closeTab(current);if(inspected!=null&&tabs.contains(inspected))switchTab(inspected);return;}if(fullscreen!=null){exitFullscreen();return;}if(current.web!=null&&current.web.canGoBack()){current.web.goBack();return;}if(!current.url.isEmpty()){current.url="";if(current.web!=null){current.web.stopLoading();if(current.network!=null)current.network.close();current.web.destroy();current.web=null;}switchTab(current);return;}if(privateMode())finishAndRemoveTask();else super.onBackPressed();}
     @Override public void onBackPressed(){goBack();}
     private void exitFullscreen(){if(fullscreen==null)return;((ViewGroup)fullscreen.getParent()).removeView(fullscreen);fullscreen=null;root.setVisibility(View.VISIBLE);if(fullscreenCallback!=null)fullscreenCallback.onCustomViewHidden();fullscreenCallback=null;getWindow().getDecorView().setSystemUiVisibility(dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);}
-    @Override protected void onPause(){super.onPause();saveSession();if(!privateMode())store.prefs.edit().putInt("blocked",totalBlocked.get()).apply();if(current!=null&&current.web!=null&&fullscreen==null)current.web.onPause();}
-    @Override protected void onResume(){super.onResume();if(current!=null&&current.web!=null)current.web.onResume();}
+    @Override protected void onPause(){super.onPause();saveSession();if(!privateMode())store.prefs.edit().putInt("blocked",totalBlocked.get()).apply();Tab active=current==null?null:(current.web!=null?current:current.inspected);if(active!=null&&active.web!=null&&fullscreen==null)active.web.onPause();}
+    @Override protected void onResume(){super.onResume();Tab active=current==null?null:(current.web!=null?current:current.inspected);if(active!=null&&active.web!=null)active.web.onResume();}
     @Override protected void onDestroy(){if(uploadCallback!=null)uploadCallback.onReceiveValue(null);if(pendingPermission!=null)pendingPermission.deny();handler.removeCallbacksAndMessages(null);for(Tab t:tabs){if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.dispose();if(t.web!=null)t.web.destroy();}for(NetworkRecorder r:importedCaptures)r.close();CaptureStorage.clearSession();super.onDestroy();}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_SHORT).show();}
     private Dialog sheet(String title,String subtitle,java.util.function.Consumer<LinearLayout> body){
@@ -280,7 +280,7 @@ public class MainActivity extends Activity {
         LinearLayout heading=row();heading.addView(text(title,24,ink,true),new LinearLayout.LayoutParams(0,-2,1));heading.addView(button("close","Close panel",d::dismiss),new LinearLayout.LayoutParams(dp(48),dp(48)));container.addView(heading);
         if(subtitle!=null){TextView sub=text(subtitle,12,muted,false);sub.setPadding(0,0,0,dp(14));container.addView(sub);}
         ScrollView scroll=new ScrollView(this);LinearLayout contents=column();scroll.addView(contents);container.addView(scroll,new LinearLayout.LayoutParams(-1,-2));body.accept(contents);d.setContentView(container);
-        Window win=d.getWindow();if(win!=null){win.setBackgroundDrawableResource(android.R.color.transparent);win.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams a=win.getAttributes();a.width=-1;a.height=-2;a.gravity=Gravity.BOTTOM;a.dimAmount=.5f;win.setAttributes(a);win.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);}
+        Window win=d.getWindow();if(win!=null){if(privateMode())win.addFlags(WindowManager.LayoutParams.FLAG_SECURE);win.setBackgroundDrawableResource(android.R.color.transparent);win.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams a=win.getAttributes();a.width=-1;a.height=-2;a.gravity=Gravity.BOTTOM;a.dimAmount=.5f;win.setAttributes(a);win.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);}
         d.show(); if(win!=null) {win.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels,dp(620)),-2);container.post(()->{int limit=(int)(getResources().getDisplayMetrics().heightPixels*.82);if(container.getHeight()>limit)win.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels,dp(620)),limit);});}return d;
     }
     private void action(LinearLayout list,String icon,String title,String subtitle,Runnable run){
@@ -297,7 +297,7 @@ public class MainActivity extends Activity {
             for(Tab t:new ArrayList<>(tabs)){LinearLayout r=row();r.setPadding(dp(12),dp(8),dp(2),dp(8));r.setBackground(outlined(t==current?(dark?0xFF25203B:0xFFEFE8FF):bg,16));
                 LinearLayout labels=column();TextView title=text(t.url.isEmpty()?"New tab":t.title,15,ink,true);title.setMaxLines(1);labels.addView(title);TextView url=text(t.url.isEmpty()?"Ready to explore":BrowserLogic.host(t.url)+(t.web==null?" · sleeping":""),11,muted,false);url.setMaxLines(1);labels.addView(url);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));labels.setPadding(0,dp(9),0,dp(9));labels.setOnClickListener(v->{dialog[0].dismiss();switchTab(t);});r.addView(button("close","Close "+t.title,()->{dialog[0].dismiss();closeTab(t);showTabs();}),new LinearLayout.LayoutParams(dp(48),dp(48)));list.addView(r);gap(list,8);}
             action(list,"plus","New tab","A fresh place to start",()->{dialog[0].dismiss();newTab("");});
-            if(tabs.size()>1)action(list,"close","Close all tabs",null,()->new AlertDialog.Builder(this).setTitle("Close all tabs?").setMessage("All open tabs in this session will close.").setNegativeButton("Cancel",null).setPositiveButton("Close tabs",(a,b)->{dialog[0].dismiss();destroyTabs();newTab("");}).show());
+            if(tabs.size()>1)action(list,"close","Close all tabs",null,()->new SpaceDialogBuilder(this).setTitle("Close all tabs?").setMessage("All open tabs in this session will close.").setNegativeButton("Cancel",null).setPositiveButton("Close tabs",(a,b)->{dialog[0].dismiss();destroyTabs();newTab("");}).show());
         });
     }
     private void showMenu(){
@@ -339,13 +339,13 @@ public class MainActivity extends Activity {
             toggle(list,"Dark appearance","A softer space after sunset",dark,on->{dark=on;if(!privateMode())store.prefs.edit().putBoolean("dark",on).apply();d[0].dismiss();if(current.web!=null&&current.web.getParent()!=null)((ViewGroup)current.web.getParent()).removeView(current.web);buildShell();switchTab(current);});
             action(list,"search","Search engine",store.prefs.getString("engine","DuckDuckGo"),()->{
                 if(privateMode()){toast("Change your search engine in regular browsing.");return;}
-                String[] engines={"DuckDuckGo","Brave","Google"};new AlertDialog.Builder(this).setTitle("Search with").setItems(engines,(dialog,which)->{store.prefs.edit().putString("engine",engines[which]).apply();d[0].dismiss();showSettings();}).show();
+                String[] engines={"DuckDuckGo","Brave","Google"};new SpaceDialogBuilder(this).setTitle("Search with").setItems(engines,(dialog,which)->{store.prefs.edit().putString("engine",engines[which]).apply();d[0].dismiss();showSettings();}).show();
             });
             toggle(list,"JavaScript","Some websites need scripts to work",store.prefs.getBoolean("javascript",true),on->{if(!privateMode())store.prefs.edit().putBoolean("javascript",on).apply();for(Tab t:tabs)if(t.web!=null)t.web.getSettings().setJavaScriptEnabled(on);if(current.web!=null)current.web.reload();});
             toggle(list,"Network capture","Record traffic for developer tools; allows WebView debugging",captureEnabled,this::setCapture);
             action(list,"globe","Set as default browser","Open links in Space",()->{RoleManagerCompat.requestBrowser(this);});
-            if(!privateMode())action(list,"shield","Clear browsing data","History, cookies, cache, open tabs and site storage",()->new AlertDialog.Builder(this).setTitle("Clear browsing data?").setMessage("This closes regular tabs and signs you out of websites. Bookmarks and downloaded files are kept. Close any private session separately.").setNegativeButton("Cancel",null).setPositiveButton("Clear data",(a,b)->{d[0].dismiss();clearBrowsingData();}).show());
-            action(list,"code","About Space","Version 1.1.0 · native Android",()->new AlertDialog.Builder(this).setTitle("Space Browser 1.1.0").setMessage("Built with native Android views and your device's Android System WebView. No analytics SDKs, account or cloud sync.\n\nAndroid 10 or newer. Keep Android System WebView updated.\n\nFilters: StevenBlack unified hosts with bundled source attribution.\n\nNetwork tools capture real WebView events and available bodies. Body limits and unavailable data are labeled. AI sends messages to your configured gateway only when you press Send.").setPositiveButton("Got it",null).show());
+            if(!privateMode())action(list,"shield","Clear browsing data","History, cookies, cache, open tabs and site storage",()->new SpaceDialogBuilder(this).setTitle("Clear browsing data?").setMessage("This closes regular tabs and signs you out of websites. Bookmarks and downloaded files are kept. Close any private session separately.").setNegativeButton("Cancel",null).setPositiveButton("Clear data",(a,b)->{d[0].dismiss();clearBrowsingData();}).show());
+            action(list,"code","About Space","Version 1.1.0 · native Android",()->new SpaceDialogBuilder(this).setTitle("Space Browser 1.1.0").setMessage("Built with native Android views and your device's Android System WebView. No analytics SDKs, account or cloud sync.\n\nAndroid 10 or newer. Keep Android System WebView updated.\n\nFilters: StevenBlack unified hosts with bundled source attribution.\n\nNetwork tools capture real WebView events and available bodies. Body limits and unavailable data are labeled. AI sends messages to your configured gateway only when you press Send.").setPositiveButton("Got it",null).show());
         });
     }
     private void destroyTabs(){stage.removeAllViews();for(Tab t:tabs){if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.dispose();if(t.web!=null){t.web.stopLoading();t.web.destroy();}}tabs.clear();current=null;}
@@ -396,12 +396,12 @@ public class MainActivity extends Activity {
     private void showLinkActions(String url){final Dialog[] d=new Dialog[1];d[0]=sheet("Link options",url,list->{action(list,"plus","Open in new tab",null,()->{d[0].dismiss();newTab(url);});action(list,"share","Copy link",null,()->{d[0].dismiss();copy(url);});action(list,"download","Download link",null,()->{d[0].dismiss();confirmDownload(url,current.web.getSettings().getUserAgentString(),null,null);});});}
     private void openExternal(String value){
         Uri uri=Uri.parse(value);String scheme=uri.getScheme();if(!Arrays.asList("mailto","tel","sms","geo","market").contains(scheme)){toast("This link type is not supported.");return;}
-        new AlertDialog.Builder(this).setTitle("Open another app?").setMessage(value).setNegativeButton("Cancel",null).setPositiveButton("Open",(d,w)->{try{Intent i=new Intent(scheme.equals("tel")?Intent.ACTION_DIAL:Intent.ACTION_VIEW,uri);i.addCategory(Intent.CATEGORY_BROWSABLE);startActivity(i);}catch(Exception e){toast("No app can open this link.");}}).show();
+        new SpaceDialogBuilder(this).setTitle("Open another app?").setMessage(value).setNegativeButton("Cancel",null).setPositiveButton("Open",(d,w)->{try{Intent i=new Intent(scheme.equals("tel")?Intent.ACTION_DIAL:Intent.ACTION_VIEW,uri);i.addCategory(Intent.CATEGORY_BROWSABLE);startActivity(i);}catch(Exception e){toast("No app can open this link.");}}).show();
     }
     private void confirmDownload(String url,String ua,String disposition,String mime){
         if(!BrowserLogic.webUrl(url)){toast("Only HTTP and HTTPS downloads are supported. Blob downloads are not available.");return;}
         String name=URLUtil.guessFileName(url,disposition,mime).replaceAll("[\\\\/\\p{Cntrl}]","_");
-        new AlertDialog.Builder(this).setTitle("Download file?").setMessage(name+"\n\nFrom "+BrowserLogic.host(url)+(privateMode()?"\n\nDownloads remain on your device after private browsing ends.":"")).setNegativeButton("Cancel",null).setPositiveButton("Download",(d,which)->{
+        new SpaceDialogBuilder(this).setTitle("Download file?").setMessage(name+"\n\nFrom "+BrowserLogic.host(url)+(privateMode()?"\n\nDownloads remain on your device after private browsing ends.":"")).setNegativeButton("Cancel",null).setPositiveButton("Download",(d,which)->{
             try{DownloadManager.Request request=new DownloadManager.Request(Uri.parse(url));request.setTitle(name);if(mime!=null)request.setMimeType(mime);request.addRequestHeader("User-Agent",ua);request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,name);((DownloadManager)getSystemService(DOWNLOAD_SERVICE)).enqueue(request);toast("Download started");}catch(Exception e){toast("Download could not start: "+e.getMessage());}
         }).show();
     }
@@ -410,7 +410,7 @@ public class MainActivity extends Activity {
         ArrayList<String> resources=new ArrayList<>();for(String r:request.getResources())if(r.equals(PermissionRequest.RESOURCE_AUDIO_CAPTURE)||r.equals(PermissionRequest.RESOURCE_VIDEO_CAPTURE))resources.add(r);
         if(resources.isEmpty()){request.deny();return;}
         pendingPermission=request;pendingResources=resources.toArray(new String[0]);String label=resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)?"camera":"";if(resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE))label+=(label.isEmpty()?"":" and ")+"microphone";
-        new AlertDialog.Builder(this).setTitle("Allow "+label+"?").setMessage(request.getOrigin()+" requests access for this session.").setNegativeButton("Deny",(d,w)->denyPending()).setOnCancelListener(d->denyPending()).setPositiveButton("Allow",(d,w)->{
+        new SpaceDialogBuilder(this).setTitle("Allow "+label+"?").setMessage(request.getOrigin()+" requests access for this session.").setNegativeButton("Deny",(d,w)->denyPending()).setOnCancelListener(d->denyPending()).setPositiveButton("Allow",(d,w)->{
             if(pendingPermission!=request)return;ArrayList<String> permissions=new ArrayList<>();for(String r:pendingResources){String permission=r.equals(PermissionRequest.RESOURCE_VIDEO_CAPTURE)?Manifest.permission.CAMERA:Manifest.permission.RECORD_AUDIO;if(checkSelfPermission(permission)!=PackageManager.PERMISSION_GRANTED)permissions.add(permission);}
             if(permissions.isEmpty())grantPending();else requestPermissions(permissions.toArray(new String[0]),SITE_PERMISSIONS);
         }).show();
