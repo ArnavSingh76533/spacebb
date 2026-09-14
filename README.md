@@ -4,19 +4,11 @@ A small, native Android browser with an original orbital identity, a central hom
 
 ## Screenshots
 
-These screenshots show the previous 1.1 layout. Fresh 1.2 screenshots are included in the Android emulator artifacts for each Actions run.
+Actual version 1.2 emulator captures. The keyboard image is from Android 10; the other images are from Android 15.
 
-| Dark | Light | Developer tools |
-| --- | --- | --- |
-| <img src="docs/screenshots/home-dark.png" width="240" alt="Space Browser dark home"> | <img src="docs/screenshots/home-light.png" width="240" alt="Space Browser light home"> | <img src="docs/screenshots/developer-tools.png" width="240" alt="Live network inspector"> |
-
-| Request headers + POST data | Decoded response | Space AI |
-| --- | --- | --- |
-| <img src="docs/screenshots/network-request.png" width="240" alt="Captured request headers and POST data"> | <img src="docs/screenshots/network-response.png" width="240" alt="Decoded JSON response"> | <img src="docs/screenshots/space-ai.png" width="240" alt="Space AI with context controls"> |
-
-| Overview | Search | Popup mode |
-| --- | --- | --- |
-| <img src="docs/screenshots/network-overview.png" width="240" alt="Request overview and timing"> | <img src="docs/screenshots/network-search.png" width="240" alt="All matching requests in network search"> | <img src="docs/screenshots/network-popup.png" width="240" alt="Network inspector as a popup"> |
+| Home · dark | Home · light | Top address bar | AI keyboard |
+| --- | --- | --- | --- |
+| <img src="docs/screenshots/v1.2-home-dark.jpg" width="220" alt="Space Browser central search in dark theme"> | <img src="docs/screenshots/v1.2-home-light.jpg" width="220" alt="Space Browser central search in light theme"> | <img src="docs/screenshots/v1.2-browsing.jpg" width="220" alt="Web page with the address bar above it"> | <img src="docs/screenshots/v1.2-ai-keyboard.jpg" width="220" alt="AI composer remains above the open keyboard"> |
 
 ## Download the APK
 
