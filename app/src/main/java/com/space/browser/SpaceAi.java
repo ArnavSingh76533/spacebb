@@ -26,7 +26,7 @@ final class SpaceAi {
     private final JSONArray history=new JSONArray();
     SpaceAi(MainActivity a){activity=a;}
     void show(List<NetworkRecord> records,boolean full){
-        Dialog dialog=new Dialog(activity);LinearLayout layout=new LinearLayout(activity);layout.setOrientation(1);layout.setPadding(20,16,20,16);layout.setBackgroundColor(0xff10131d);
+        Dialog dialog=new Dialog(activity);LinearLayout layout=new LinearLayout(activity);layout.setOrientation(LinearLayout.VERTICAL);layout.setPadding(20,16,20,16);layout.setBackgroundColor(0xff10131d);
         TextView title=label("✦  Space AI",23);layout.addView(title);TextView note=label("Ask about the web or inspect captured traffic",12);layout.addView(note);
         CheckBox sensitive=new CheckBox(activity);sensitive.setText("Include sensitive data");sensitive.setTextColor(0xffe7defe);sensitive.setChecked(!activity.devPrefs().getBoolean("dev_mask",true));layout.addView(sensitive);
         TextView context=label("",12);layout.addView(context);Runnable update=()->{String value=NetworkFormats.aiContext(records,full,sensitive.isChecked());context.setText(records.size()+" captured items · ~"+Math.max(1,value.length()/4)+" context tokens\n"+(sensitive.isChecked()?"Includes credentials and private data":"Common credentials masked; review context before sending"));};update.run();
