@@ -59,13 +59,14 @@ public final class BrowserSmokeTest extends InstrumentationTestCase {
             assertFalse(android.webkit.CookieManager.getInstance().acceptThirdPartyCookies(target));
             assertEquals(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW,target.getSettings().getMixedContentMode());
         });
-        getInstrumentation().runOnMainSync(()->find(activity.getWindow().getDecorView(),"New tab").performClick());getInstrumentation().waitForIdleSync();
-        assertNull(findWeb(activity.getWindow().getDecorView()));
         // Verify that the private process cannot see the regular session cookie.
         final java.util.concurrent.CountDownLatch cookieSet=new java.util.concurrent.CountDownLatch(1);
         getInstrumentation().runOnMainSync(()->target.evaluateJavascript("document.cookie='space_session=normal; path=/'; document.cookie",value->cookieSet.countDown()));
-        assertTrue(cookieSet.await(5,java.util.concurrent.TimeUnit.SECONDS));
+        assertTrue("Cookie setup must complete while its tab is active",cookieSet.await(5,java.util.concurrent.TimeUnit.SECONDS));
         android.webkit.CookieManager.getInstance().flush();
+        getInstrumentation().runOnMainSync(()->find(activity.getWindow().getDecorView(),"New tab").performClick());getInstrumentation().waitForIdleSync();
+        assertNull(findWeb(activity.getWindow().getDecorView()));
+
         getInstrumentation().getTargetContext().startActivity(new Intent(getInstrumentation().getTargetContext(),PrivateActivity.class).setAction(Intent.ACTION_VIEW).setData(android.net.Uri.parse("http://127.0.0.1:"+server.getLocalPort()+"/private")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         for(int i=0;i<100&&privateCookie.get()==null;i++)Thread.sleep(200);
         assertNotNull("Private page should load",privateCookie.get());
