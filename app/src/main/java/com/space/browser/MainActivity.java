@@ -21,7 +21,7 @@ import org.json.*;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.concurrent.ConcurrentLinkedDeque;
+
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class MainActivity extends Activity {
@@ -45,7 +45,9 @@ public class MainActivity extends Activity {
     private int bg, panel, ink, muted, line, accent;
     private volatile Set<String> allowedSites=Collections.emptySet();
     private volatile boolean shieldsOn=true;
-    private boolean usbDebugging;
+    private boolean captureEnabled;
+    private byte[] pendingExport;
+    private final ArrayList<NetworkRecorder> importedCaptures=new ArrayList<>();
     private final AtomicInteger totalBlocked = new AtomicInteger();
     private final Handler handler=new Handler(Looper.getMainLooper());
 
@@ -55,7 +57,10 @@ public class MainActivity extends Activity {
         volatile String site="";
         boolean desktop, reader;
         final AtomicInteger blocked=new AtomicInteger();
-        final ConcurrentLinkedDeque<String> requests=new ConcurrentLinkedDeque<>(), console=new ConcurrentLinkedDeque<>();
+        NetworkRecorder network;
+        NetworkInspector inspector;
+        Tab inspected;
+        boolean attaching;
     }
     protected boolean privateMode() { return false; }
 
@@ -63,7 +68,8 @@ public class MainActivity extends Activity {
         super.onCreate(state);
         store=new BrowserStore(this); shields=new ShieldEngine(this);
         totalBlocked.set(privateMode()?0:store.prefs.getInt("blocked",0));
-        WebView.setWebContentsDebuggingEnabled(false);
+        captureEnabled=store.prefs.getBoolean("dev_capture",true);
+        WebView.setWebContentsDebuggingEnabled(captureEnabled);
         dark=store.prefs.getBoolean("dark",true);
         shieldsOn=store.prefs.getBoolean("shields",true);
         allowedSites=new HashSet<>(store.prefs.getStringSet("allowSites",Collections.emptySet()));
@@ -133,24 +139,25 @@ public class MainActivity extends Activity {
         Tab t=new Tab();t.url=url;tabs.add(t);switchTab(t);
     }
     private void switchTab(Tab t) {
-        if(current!=null&&current.web!=null)current.web.onPause();
+        if(current!=null&&current.web!=null&&t.inspected!=current)current.web.onPause();
         stage.removeAllViews();current=t;
-        if(t.url.isEmpty())showHome();else{ensureWeb(t);stage.addView(t.web,new FrameLayout.LayoutParams(-1,-1));t.web.onResume();}
+        if(t.inspector!=null){if(t.inspector.getParent()!=null)((ViewGroup)t.inspector.getParent()).removeView(t.inspector);stage.addView(t.inspector,new FrameLayout.LayoutParams(-1,-1));if(t.inspected!=null&&t.inspected.web!=null)t.inspected.web.onResume();}else if(t.url.isEmpty())showHome();else{ensureWeb(t);stage.addView(t.web,new FrameLayout.LayoutParams(-1,-1));t.web.onResume();}
         trimTabs();updateChrome();saveSession();
     }
     private void trimTabs() {
         int live=0;for(Tab t:tabs)if(t.web!=null)live++;
-        for(Tab t:tabs)if(live>MAX_LIVE_TABS&&t!=current&&t.web!=null){t.web.destroy();t.web=null;live--;}
+        for(Tab t:tabs)if(live>MAX_LIVE_TABS&&t!=current&&(current==null||current.inspected!=t)&&t.web!=null){if(t.network!=null)t.network.close();t.web.destroy();t.web=null;live--;}
     }
     private void closeTab(Tab t) {
-        boolean selected=t==current;if(t.web!=null){if(t.web.getParent()!=null)((android.view.ViewGroup)t.web.getParent()).removeView(t.web);t.web.destroy();}
+        boolean selected=t==current;if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.close();if(t.web!=null){if(t.web.getParent()!=null)((android.view.ViewGroup)t.web.getParent()).removeView(t.web);t.web.destroy();}
         tabs.remove(t);if(tabs.isEmpty()){current=null;newTab("");}else if(selected)switchTab(tabs.get(tabs.size()-1));updateChrome();saveSession();
     }
     private void navigate(String input) {
         String url=BrowserLogic.resolve(input,store.prefs.getString("engine","DuckDuckGo"));if(url.isEmpty())return;
+        if(current.inspector!=null){newTab(url);return;}
         ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(address.getWindowToken(),0);stage.requestFocus();
         current.url=url;current.reader=false;current.site=BrowserLogic.host(url);stage.removeAllViews();boolean created=current.web==null;ensureWeb(current);
-        stage.addView(current.web,new FrameLayout.LayoutParams(-1,-1));current.web.onResume();if(!created)current.web.loadUrl(url);updateChrome();trimTabs();
+        stage.addView(current.web,new FrameLayout.LayoutParams(-1,-1));current.web.onResume();if(!created&&!current.attaching)current.web.loadUrl(url);updateChrome();trimTabs();
     }
     private void updateChrome() {
         if(current==null||address==null)return;
@@ -204,27 +211,26 @@ public class MainActivity extends Activity {
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){
                 String url=request.getUrl().toString();
                 boolean blocked=shieldsOn&&!allowedSites.contains(t.site)&&!request.isForMainFrame()&&shields.blocked(url);
-                append(t.requests,(blocked?"BLOCK ":request.getMethod()+" ")+url,200);
+                if(blocked&&t.network!=null)t.network.markBlocked(url);
                 if(blocked){t.blocked.incrementAndGet();totalBlocked.incrementAndGet();return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));}
                 return null;
             }
             @Override public void onPageStarted(WebView view,String url,android.graphics.Bitmap favicon){
-                if(!BrowserLogic.webUrl(url))return;t.url=url;t.site=BrowserLogic.host(url);t.reader=false;if(t==current){progress.setVisibility(View.VISIBLE);updateChrome();}saveSession();
+                if(!BrowserLogic.webUrl(url))return;if(captureEnabled&&t.network==null)attachCapture(t,url,false);t.url=url;t.site=BrowserLogic.host(url);t.reader=false;if(t==current){progress.setVisibility(View.VISIBLE);updateChrome();}saveSession();
             }
             @Override public void onPageFinished(WebView view,String url){
                 if(t==current){progress.setVisibility(View.INVISIBLE);updateChrome();}
                 if(!privateMode()&&BrowserLogic.webUrl(url)&&!clearing)store.add("history",t.title,url,500);saveSession();
             }
             @Override public void onReceivedSslError(WebView view,SslErrorHandler ssl,SslError error){ssl.cancel();if(t==current)toast("Connection blocked: this site's certificate is not valid.");}
-            @Override public void onReceivedError(WebView view,WebResourceRequest request,WebResourceError error){append(t.console,"LOAD ERROR "+error.getErrorCode()+" "+error.getDescription()+" "+request.getUrl(),150);if(request.isForMainFrame()&&t==current)toast("Page could not load. Check the address or your connection.");}
+            @Override public void onReceivedError(WebView view,WebResourceRequest request,WebResourceError error){if(request.isForMainFrame()&&t==current)toast("Page could not load. Check the address or your connection.");}
             @Override public boolean onRenderProcessGone(WebView view,RenderProcessGoneDetail detail){
-                if(view.getParent()!=null)((ViewGroup)view.getParent()).removeView(view);view.destroy();t.web=null;if(t==current){toast("This tab stopped. Reloading it now.");switchTab(t);}return true;
+                if(view.getParent()!=null)((ViewGroup)view.getParent()).removeView(view);if(t.network!=null)t.network.close();view.destroy();t.web=null;if(t==current){toast("This tab stopped. Reloading it now.");switchTab(t);}return true;
             }
         });
         w.setWebChromeClient(new WebChromeClient(){
             @Override public void onProgressChanged(WebView view,int value){if(t==current){progress.setProgress(value);progress.setVisibility(value==100?View.INVISIBLE:View.VISIBLE);}}
             @Override public void onReceivedTitle(WebView view,String title){t.title=title==null?"Page":title;saveSession();}
-            @Override public boolean onConsoleMessage(ConsoleMessage message){append(t.console,message.messageLevel()+"  "+message.message()+"\n"+message.sourceId()+":"+message.lineNumber(),150);return true;}
             @Override public boolean onCreateWindow(WebView view,boolean dialog,boolean gesture,Message result){
                 if(!gesture||tabs.size()>=MAX_TABS)return false;
                 Tab popup=new Tab();tabs.add(popup);ensureWeb(popup);popup.url="about:blank";switchTab(popup);
@@ -248,21 +254,24 @@ public class MainActivity extends Activity {
         });
         w.setDownloadListener((url,ua,disposition,mime,length)->confirmDownload(url,ua,disposition,mime));
         w.setOnLongClickListener(v->{WebView.HitTestResult hit=w.getHitTestResult();String url=hit.getExtra();if(url!=null&&BrowserLogic.webUrl(url)){showLinkActions(url);return true;}return false;});
-        if(BrowserLogic.webUrl(t.url))w.loadUrl(t.url);
+        if(BrowserLogic.webUrl(t.url)){if(captureEnabled){String marker="about:blank#space-"+UUID.randomUUID();w.loadUrl(marker);attachCapture(t,marker,true);}else w.loadUrl(t.url);}
     }
-    private static void append(ConcurrentLinkedDeque<String> queue,String value,int cap){queue.addLast(value.length()>8000?value.substring(0,8000)+"…":value);while(queue.size()>cap)queue.pollFirst();}
+    private void attachCapture(Tab t,String marker,boolean navigateWhenReady){
+        if(t.network!=null)t.network.close();t.network=new NetworkRecorder();t.network.setLimit(store.prefs.getInt("dev_limit",2000));t.attaching=true;WebView target=t.web;
+        t.network.attach(marker,()->handler.post(()->{if(t.web!=target)return;t.attaching=false;if(navigateWhenReady&&BrowserLogic.webUrl(t.url))target.loadUrl(t.url);}));
+    }
     private void setDesktop(Tab t){if(t.web==null)return;String ua=WebSettings.getDefaultUserAgent(this);t.web.getSettings().setUserAgentString(t.desktop?ua.replace("; wv","").replace("Mobile ","").replaceAll("\\(Linux; Android [^)]+\\)","(X11; Linux x86_64)"):ua);}
     private void saveSession(){
         if(privateMode()||clearing||store==null)return;List<BrowserStore.Entry> list=new ArrayList<>();
         if(current!=null&&BrowserLogic.webUrl(current.url))list.add(new BrowserStore.Entry(current.title,current.url));
         for(Tab t:tabs)if(t!=current&&BrowserLogic.webUrl(t.url))list.add(new BrowserStore.Entry(t.title,t.url));store.write("session",list);
     }
-    private void goBack(){if(fullscreen!=null){exitFullscreen();return;}if(current.web!=null&&current.web.canGoBack()){current.web.goBack();return;}if(!current.url.isEmpty()){current.url="";if(current.web!=null){current.web.stopLoading();current.web.destroy();current.web=null;}switchTab(current);return;}if(privateMode())finishAndRemoveTask();else super.onBackPressed();}
+    private void goBack(){if(current!=null&&current.inspector!=null){Tab inspected=current.inspected;closeTab(current);if(inspected!=null&&tabs.contains(inspected))switchTab(inspected);return;}if(fullscreen!=null){exitFullscreen();return;}if(current.web!=null&&current.web.canGoBack()){current.web.goBack();return;}if(!current.url.isEmpty()){current.url="";if(current.web!=null){current.web.stopLoading();if(current.network!=null)current.network.close();current.web.destroy();current.web=null;}switchTab(current);return;}if(privateMode())finishAndRemoveTask();else super.onBackPressed();}
     @Override public void onBackPressed(){goBack();}
     private void exitFullscreen(){if(fullscreen==null)return;((ViewGroup)fullscreen.getParent()).removeView(fullscreen);fullscreen=null;root.setVisibility(View.VISIBLE);if(fullscreenCallback!=null)fullscreenCallback.onCustomViewHidden();fullscreenCallback=null;getWindow().getDecorView().setSystemUiVisibility(dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);}
     @Override protected void onPause(){super.onPause();saveSession();if(!privateMode())store.prefs.edit().putInt("blocked",totalBlocked.get()).apply();if(current!=null&&current.web!=null&&fullscreen==null)current.web.onPause();}
     @Override protected void onResume(){super.onResume();if(current!=null&&current.web!=null)current.web.onResume();}
-    @Override protected void onDestroy(){if(uploadCallback!=null)uploadCallback.onReceiveValue(null);if(pendingPermission!=null)pendingPermission.deny();handler.removeCallbacksAndMessages(null);for(Tab t:tabs)if(t.web!=null)t.web.destroy();super.onDestroy();}
+    @Override protected void onDestroy(){if(uploadCallback!=null)uploadCallback.onReceiveValue(null);if(pendingPermission!=null)pendingPermission.deny();handler.removeCallbacksAndMessages(null);for(Tab t:tabs){if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.close();if(t.web!=null)t.web.destroy();}for(NetworkRecorder r:importedCaptures)r.close();super.onDestroy();}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_SHORT).show();}
     private Dialog sheet(String title,String subtitle,java.util.function.Consumer<LinearLayout> body){
         Dialog d=new Dialog(this);LinearLayout container=column();container.setPadding(dp(22),dp(14),dp(22),dp(24));container.setBackground(surface(panel,26));
@@ -297,14 +306,15 @@ public class MainActivity extends Activity {
             action(list,"star","Bookmarks",null,()->{d[0].dismiss();showEntries("bookmarks");});
             if(!privateMode())action(list,"history","History",null,()->{d[0].dismiss();showEntries("history");});
             action(list,"download","Downloads",null,()->{d[0].dismiss();try{startActivity(new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS));}catch(Exception e){toast("Open your device's Files app to see downloads.");}});
-            if(!current.url.isEmpty()){
+            if(current.web!=null&&!current.url.isEmpty()){
                 action(list,"star","Bookmark this page",null,()->{d[0].dismiss();if(privateMode()){toast("Bookmarks are not saved in private browsing.");return;}store.add("bookmarks",current.title,current.url,300);toast("Bookmark saved");});
                 action(list,"search","Find in page",null,()->{d[0].dismiss();showFind();});
                 action(list,"reader",current.reader?"Exit reading view":"Reading view","Simplify article pages",()->{d[0].dismiss();readerMode();});
                 action(list,"globe",current.desktop?"Switch to mobile site":"Request desktop site",null,()->{d[0].dismiss();current.desktop=!current.desktop;setDesktop(current);current.web.reload();});
                 action(list,"share","Share page",null,()->{d[0].dismiss();startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,current.url),"Share page"));});
             }
-            action(list,"code","Developer tools","Console · requests · DOM · JavaScript",()->{d[0].dismiss();showDevTools();});
+            action(list,"code","Developer tools","Network · headers · bodies · decode",()->{d[0].dismiss();showDevTools();});
+            action(list,"code","Space AI","Ask a question or analyze selected network traffic",()->{d[0].dismiss();new SpaceAi(this).show(Collections.emptyList(),false);});
             action(list,"settings","Settings","Appearance, search and privacy",()->{d[0].dismiss();showSettings();});
         });
     }
@@ -331,13 +341,13 @@ public class MainActivity extends Activity {
                 String[] engines={"DuckDuckGo","Brave","Google"};new AlertDialog.Builder(this).setTitle("Search with").setItems(engines,(dialog,which)->{store.prefs.edit().putString("engine",engines[which]).apply();d[0].dismiss();showSettings();}).show();
             });
             toggle(list,"JavaScript","Some websites need scripts to work",store.prefs.getBoolean("javascript",true),on->{if(!privateMode())store.prefs.edit().putBoolean("javascript",on).apply();for(Tab t:tabs)if(t.web!=null)t.web.getSettings().setJavaScriptEnabled(on);if(current.web!=null)current.web.reload();});
-            toggle(list,"USB developer inspection","Allow Chrome DevTools while enabled",usbDebugging,on->{usbDebugging=on;WebView.setWebContentsDebuggingEnabled(on);toast(on?"USB inspection enabled for this process":"USB inspection disabled");});
+            toggle(list,"Network capture","Record traffic for developer tools; allows WebView debugging",captureEnabled,this::setCapture);
             action(list,"globe","Set as default browser","Open links in Space",()->{RoleManagerCompat.requestBrowser(this);});
             if(!privateMode())action(list,"shield","Clear browsing data","History, cookies, cache, open tabs and site storage",()->new AlertDialog.Builder(this).setTitle("Clear browsing data?").setMessage("This closes regular tabs and signs you out of websites. Bookmarks and downloaded files are kept. Close any private session separately.").setNegativeButton("Cancel",null).setPositiveButton("Clear data",(a,b)->{d[0].dismiss();clearBrowsingData();}).show());
-            action(list,"code","About Space","Version 1.0.0 · native Android",()->new AlertDialog.Builder(this).setTitle("Space Browser 1.0.0").setMessage("Built with native Android views and your device's Android System WebView. No analytics SDKs, account or cloud sync.\n\nAndroid 10 or newer. Keep Android System WebView updated.\n\nFilters: StevenBlack unified hosts with bundled source attribution.\n\nDeveloper network logs show observed requests, not response bodies or a complete HAR trace.").setPositiveButton("Got it",null).show());
+            action(list,"code","About Space","Version 1.1.0 · native Android",()->new AlertDialog.Builder(this).setTitle("Space Browser 1.1.0").setMessage("Built with native Android views and your device's Android System WebView. No analytics SDKs, account or cloud sync.\n\nAndroid 10 or newer. Keep Android System WebView updated.\n\nFilters: StevenBlack unified hosts with bundled source attribution.\n\nNetwork tools capture real WebView events and available bodies. Body limits and unavailable data are labeled. AI sends messages to your configured gateway only when you press Send.").setPositiveButton("Got it",null).show());
         });
     }
-    private void destroyTabs(){stage.removeAllViews();for(Tab t:tabs)if(t.web!=null){t.web.stopLoading();t.web.destroy();}tabs.clear();current=null;}
+    private void destroyTabs(){stage.removeAllViews();for(Tab t:tabs){if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.close();if(t.web!=null){t.web.stopLoading();t.web.destroy();}}tabs.clear();current=null;}
     private void clearBrowsingData(){
         clearing=true;destroyTabs();WebView cleaner=new WebView(this);cleaner.clearCache(true);cleaner.clearHistory();cleaner.clearFormData();cleaner.destroy();WebStorage.getInstance().deleteAllData();WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();
         CookieManager.getInstance().removeAllCookies(done->{CookieManager.getInstance().flush();store.prefs.edit().remove("history").remove("session").apply();clearing=false;newTab("");toast("Browsing data cleared");});
@@ -355,34 +365,31 @@ public class MainActivity extends Activity {
         current.web.evaluateJavascript("(()=>{const a=document.querySelector('article')||document.querySelector('main');if(!a||a.innerText.length<300)return 'No article found';const text=a.innerText;document.body.replaceChildren();const main=document.createElement('main');main.textContent=text;main.style.cssText='max-width:720px;margin:auto;padding:32px 24px;white-space:pre-wrap;font:20px/1.8 Georgia,serif';document.body.style.cssText='background:#f7f2e8;color:#262130;margin:0';document.body.appendChild(main);return 'Reading view enabled';})()",value->{current.reader=value.contains("enabled");toast(decodeJs(value));});
     }
     private String decodeJs(String value){try{Object obj=new JSONTokener(value).nextValue();return obj==JSONObject.NULL?"null":String.valueOf(obj);}catch(Exception e){return value;}}
+    private List<NetworkRecorder> networkSources(){ArrayList<NetworkRecorder> result=new ArrayList<>(importedCaptures);for(Tab t:tabs)if(t.network!=null)result.add(t.network);return result;}
     private void showDevTools(){
-        if(current.web==null||current.url.isEmpty()){toast("Open a website to use developer tools.");return;}Tab target=current;
-        final String[] section={"Console"};final TextView[] output={null};final Runnable[] refresh={null};
-        Dialog d=sheet("Developer tools",BrowserLogic.host(target.url)+" · on-device inspection",list->{
-            Spinner select=new Spinner(this);ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"Console","Requests","DOM / source","Page info"});select.setAdapter(adapter);list.addView(select,new LinearLayout.LayoutParams(-1,dp(48)));
-            TextView note=text("Logs are limited and session-only. Refresh to see new entries.",11,muted,false);list.addView(note);gap(list,8);
-            TextView out=text("",11,ink,false);out.setTypeface(Typeface.MONOSPACE);out.setTextIsSelectable(true);out.setPadding(dp(12),dp(12),dp(12),dp(12));out.setBackground(surface(bg,12));output[0]=out;
-            ScrollView scroll=new ScrollView(this);scroll.addView(out);list.addView(scroll,new LinearLayout.LayoutParams(-1,dp(230)));
-            refresh[0]=()->{
-                if(target.web==null){out.setText("Tab is no longer active.");return;}
-                switch(section[0]){
-                    case "Console":out.setText(target.console.isEmpty()?"No console messages yet.\n\nTry: document.title":String.join("\n\n",target.console));break;
-                    case "Requests":out.setText(target.requests.isEmpty()?"No requests recorded yet.":String.join("\n\n",target.requests));break;
-                    case "DOM / source":target.web.evaluateJavascript("document.documentElement.outerHTML.slice(0,120000)",value->out.setText(decodeJs(value)));break;
-                    default:target.web.evaluateJavascript("JSON.stringify({url:location.href,title:document.title,readyState:document.readyState,viewport:innerWidth+' × '+innerHeight,links:document.links.length,images:document.images.length,resources:performance.getEntriesByType('resource').length,userAgent:navigator.userAgent},null,2)",value->out.setText(decodeJs(value)));break;
-                }
-            };
-            select.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onItemSelected(AdapterView<?> parent,View view,int position,long id){section[0]=(String)parent.getItemAtPosition(position);refresh[0].run();}public void onNothingSelected(AdapterView<?> parent){}});
-            LinearLayout controls=row();controls.addView(button("refresh","Refresh inspector",()->refresh[0].run()),new LinearLayout.LayoutParams(dp(48),dp(48)));controls.addView(button("share","Copy inspector output",()->copy(out.getText().toString())),new LinearLayout.LayoutParams(dp(48),dp(48)));controls.addView(button("close","Clear logs",()->{target.console.clear();target.requests.clear();refresh[0].run();}),new LinearLayout.LayoutParams(dp(48),dp(48)));list.addView(controls);
-            EditText code=new EditText(this);code.setTextColor(ink);code.setHintTextColor(muted);code.setTextSize(12);code.setTypeface(Typeface.MONOSPACE);code.setHint("JavaScript expression, e.g. document.title");code.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);code.setMaxLines(4);list.addView(code,new LinearLayout.LayoutParams(-1,-2));
-            action(list,"code","Run JavaScript","Runs in this page. Only run code you understand.",()->{
-                String js=code.getText().toString();if(js.trim().isEmpty()||target.web==null)return;
-                new AlertDialog.Builder(this).setTitle("Run code on this page?").setMessage("JavaScript can read and modify data on "+BrowserLogic.host(target.url)+". Continue only with code you trust.").setNegativeButton("Cancel",null).setPositiveButton("Run",(a,b)->{
-                    if(target.web==null)return;String script="(()=>{try{const r=(0,eval)("+JSONObject.quote(js)+");return typeof r==='string'?r:JSON.stringify(r,null,2)}catch(e){return e.stack||String(e)}})()";
-                    target.web.evaluateJavascript(script,value->{append(target.console,"> "+js+"\n"+decodeJs(value),150);select.setSelection(0);section[0]="Console";refresh[0].run();});
-                }).show();
-            });
-        });
+        if(current.inspector!=null)return;
+        if(current.web==null){toast("Open a website to use developer tools.");return;}
+        if(current.network==null)current.network=new NetworkRecorder();
+        showInspector(current.network,current);
+    }
+    private void showInspector(NetworkRecorder recorder,Tab target){
+        if(store.prefs.getBoolean("dev_popup",false)){
+            Dialog dialog=new Dialog(this);NetworkInspector inspector=new NetworkInspector(this,recorder,this::networkSources,dialog::dismiss);dialog.setContentView(inspector);dialog.setOnDismissListener(d->inspector.dispose());dialog.show();Window w=dialog.getWindow();if(w!=null){w.setLayout(-1,(int)(getResources().getDisplayMetrics().heightPixels*.88));w.setGravity(Gravity.BOTTOM);w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);if(privateMode())w.addFlags(WindowManager.LayoutParams.FLAG_SECURE);}
+        }else{if(tabs.size()>=MAX_TABS){toast("Close a tab first");return;}Tab tools=new Tab();tools.title="Developer tools";tools.url="space://devtools";tools.inspected=target;tools.inspector=new NetworkInspector(this,recorder,this::networkSources,()->{closeTab(tools);if(target!=null&&tabs.contains(target))switchTab(target);});tabs.add(tools);switchTab(tools);}
+    }
+    android.content.SharedPreferences devPrefs(){return store.prefs;}
+    void devToast(String message){toast(message);}
+    void copyText(String text){copy(text);}
+    void setCapture(boolean enabled){
+        if(captureEnabled==enabled)return;captureEnabled=enabled;store.prefs.edit().putBoolean("dev_capture",enabled).apply();WebView.setWebContentsDebuggingEnabled(enabled);
+        for(Tab t:tabs)if(t.web!=null){if(enabled)attachCapture(t,t.web.getUrl()==null?t.url:t.web.getUrl(),false);else if(t.network!=null)t.network.close();}
+        toast(enabled?"Capture enabled. Reload the page and reopen tools for a complete trace.":"Capture disabled");
+    }
+    void saveDevFile(byte[] data,String name,String mime){pendingExport=data;try{startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(mime).putExtra(Intent.EXTRA_TITLE,name),201);}catch(Exception e){pendingExport=null;toast("No file picker available");}}
+    void importDevHar(){try{startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),202);}catch(Exception e){toast("No file picker available");}}
+    void replayDevRequest(NetworkRecord r,NetworkRecorder destination){
+        if(!BrowserLogic.webUrl(r.url)){toast("Replay requires an HTTP or HTTPS URL");return;}
+        new Thread(()->{java.net.HttpURLConnection c=null;try{r.type="Replay";r.started=android.os.SystemClock.elapsedRealtime()/1000d;c=(java.net.HttpURLConnection)new java.net.URL(r.url).openConnection();c.setConnectTimeout(15000);c.setReadTimeout(30000);c.setInstanceFollowRedirects(false);c.setRequestMethod(r.method);for(Map.Entry<String,String> h:r.requestHeaders.entrySet())if(!h.getKey().startsWith(":")&&!h.getKey().equalsIgnoreCase("content-length")&&!h.getKey().equalsIgnoreCase("host")&&!h.getKey().equalsIgnoreCase("connection"))c.setRequestProperty(h.getKey(),h.getValue());if(r.requestBody.length>0){c.setDoOutput(true);c.setFixedLengthStreamingMode(r.requestBody.length);try(java.io.OutputStream out=c.getOutputStream()){out.write(r.requestBody);}}r.status=c.getResponseCode();r.statusText=c.getResponseMessage();r.finalUrl=c.getURL().toString();for(Map.Entry<String,List<String>> h:c.getHeaderFields().entrySet())if(h.getKey()!=null)r.responseHeaders.put(h.getKey(),String.join("\n",h.getValue()));r.mime=c.getContentType()==null?"":c.getContentType();try(java.io.InputStream in=r.status>=400?c.getErrorStream():c.getInputStream()){if(in!=null)r.responseBody=NetworkFormats.read(in,NetworkRecorder.BODY_LIMIT);}r.transferBytes=r.responseBody.length;r.responseBodyNote="Explicit replay response; redirects were not followed";}catch(Exception e){r.error=e.getMessage();r.responseBodyNote="Replay failed: "+e.getMessage();}finally{if(c!=null)c.disconnect();r.complete=true;r.finished=android.os.SystemClock.elapsedRealtime()/1000d;destination.addImported(r);handler.post(()->toast("Replay captured: "+r.status));}},"Space-replay").start();
     }
     private void copy(String value){((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Space",value));toast("Copied");}
     private void showLinkActions(String url){final Dialog[] d=new Dialog[1];d[0]=sheet("Link options",url,list->{action(list,"plus","Open in new tab",null,()->{d[0].dismiss();newTab(url);});action(list,"share","Copy link",null,()->{d[0].dismiss();copy(url);});action(list,"download","Download link",null,()->{d[0].dismiss();confirmDownload(url,current.web.getSettings().getUserAgentString(),null,null);});});}
@@ -411,6 +418,9 @@ public class MainActivity extends Activity {
     private void grantPending(){if(pendingPermission!=null){if(current!=null&&BrowserLogic.origin(pendingPermission.getOrigin().toString()).equals(BrowserLogic.origin(current.url)))pendingPermission.grant(pendingResources);else pendingPermission.deny();}pendingPermission=null;pendingResources=null;}
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){super.onRequestPermissionsResult(request,permissions,results);if(request==SITE_PERMISSIONS){boolean all=results.length>0;for(int r:results)all&=r==PackageManager.PERMISSION_GRANTED;if(all)grantPending();else denyPending();}}
     @Override protected void onActivityResult(int request,int result,Intent data){
-        super.onActivityResult(request,result,data);if(request==UPLOAD&&uploadCallback!=null){ArrayList<Uri> uris=new ArrayList<>();if(result==RESULT_OK&&data!=null){if(data.getClipData()!=null){for(int i=0;i<data.getClipData().getItemCount();i++)uris.add(data.getClipData().getItemAt(i).getUri());}else if(data.getData()!=null)uris.add(data.getData());}uploadCallback.onReceiveValue(uris.isEmpty()?null:uris.toArray(new Uri[0]));uploadCallback=null;}
+        super.onActivityResult(request,result,data);
+        if(request==201){byte[] bytes=pendingExport;pendingExport=null;if(result==RESULT_OK&&data!=null&&data.getData()!=null&&bytes!=null){Uri uri=data.getData();new Thread(()->{try(java.io.OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new java.io.IOException("Cannot open destination");out.write(bytes);handler.post(()->toast("Saved"));}catch(Exception e){handler.post(()->toast("Save failed: "+e.getMessage()));}},"Space-export").start();}return;}
+        if(request==202){if(result==RESULT_OK&&data!=null&&data.getData()!=null){Uri uri=data.getData();new Thread(()->{try(java.io.InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new java.io.IOException("Cannot open file");List<NetworkRecord> imported=NetworkFormats.importHar(new String(NetworkFormats.read(in,32*1024*1024),StandardCharsets.UTF_8));handler.post(()->{NetworkRecorder recorder=new NetworkRecorder();for(NetworkRecord r:imported)recorder.addImported(r);recorder.pause(true);importedCaptures.add(recorder);showInspector(recorder,null);});}catch(Exception e){handler.post(()->toast("HAR import failed: "+e.getMessage()));}},"Space-import").start();}return;}
+        if(request==UPLOAD&&uploadCallback!=null){ArrayList<Uri> uris=new ArrayList<>();if(result==RESULT_OK&&data!=null){if(data.getClipData()!=null){for(int i=0;i<data.getClipData().getItemCount();i++)uris.add(data.getClipData().getItemAt(i).getUri());}else if(data.getData()!=null)uris.add(data.getData());}uploadCallback.onReceiveValue(uris.isEmpty()?null:uris.toArray(new Uri[0]));uploadCallback=null;}
     }
 }

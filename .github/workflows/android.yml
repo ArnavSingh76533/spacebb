@@ -119,7 +119,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v1.0.0-preview.${GITHUB_RUN_NUMBER}" artifacts/Space-Browser.apk artifacts/SHA256SUMS.txt \
+          gh release create "v1.1.0-preview.${GITHUB_RUN_NUMBER}" artifacts/Space-Browser.apk artifacts/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-            --title "Space Browser 1.0 · Preview ${GITHUB_RUN_NUMBER}" \
+            --title "Space Browser 1.1 · Preview ${GITHUB_RUN_NUMBER}" \
             --notes 'Native lightweight Android browser with Space shields, private browsing, tabs and developer tools. Android 10+. This is a preview signed with a CI debug identity, not a production signing key. Back up bookmarks before replacing an older preview if Android reports a signing conflict.'

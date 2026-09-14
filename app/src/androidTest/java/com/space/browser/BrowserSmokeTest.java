@@ -25,10 +25,16 @@ public final class BrowserSmokeTest extends InstrumentationTestCase {
     public void testBrowserJourney() throws Exception {
         server=new ServerSocket(0,8,InetAddress.getByName("127.0.0.1"));
         new Thread(()->{while(!server.isClosed())try(Socket socket=server.accept()){
-            BufferedReader in=new BufferedReader(new InputStreamReader(socket.getInputStream()));String first=in.readLine();String line;String cookie="";while((line=in.readLine())!=null&&!line.isEmpty()){if(line.toLowerCase().startsWith("cookie:"))cookie=line;}
+            BufferedReader in=new BufferedReader(new InputStreamReader(socket.getInputStream()));String first=in.readLine();String line;String cookie="";int length=0;while((line=in.readLine())!=null&&!line.isEmpty()){if(line.toLowerCase().startsWith("cookie:"))cookie=line;if(line.toLowerCase().startsWith("content-length:"))length=Integer.parseInt(line.split(":",2)[1].trim());}if(length>0){char[] body=new char[length];int offset=0;while(offset<length){int n=in.read(body,offset,length-offset);if(n<0)break;offset+=n;}}
             if(first!=null&&first.contains("/private"))privateCookie.set(cookie);
-            String html="<!doctype html><html><head><title>Space test page</title><meta name='viewport' content='width=device-width'></head><body><article><h1>Space test page</h1><p>"+String.join("",java.util.Collections.nCopies(30,"A quieter web for curious minds. "))+"</p><a href='/next'>Next page</a><input type='file'><script>console.log('SPACE_CONSOLE_OK');</script></article></body></html>";
-            byte[] bytes=html.getBytes(java.nio.charset.StandardCharsets.UTF_8);OutputStream out=socket.getOutputStream();out.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: "+bytes.length+"\r\nConnection: close\r\n\r\n").getBytes());out.write(bytes);out.flush();
+            String html="<!doctype html><html><head><title>Space test page</title><meta name='viewport' content='width=device-width'></head><body><article><h1>Space test page</h1><p>"+String.join("",java.util.Collections.nCopies(30,"A quieter web for curious minds. "))+"</p><a href='/next'>Next page</a><input type='file'><script>fetch('/api',{method:'POST',headers:{'Content-Type':'application/json','X-Space-Test':'yes'},body:JSON.stringify({message:'SPACE_POST_OK'})});fetch('/gzip');fetch('/redirect');fetch('/binary');</script></article></body></html>";
+            String path=first==null?"/":first.split(" ")[1];String mime="text/html; charset=utf-8",extra="",status="200 OK";
+            byte[] bytes=html.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            if(path.equals("/api")||path.equals("/final")){mime="application/json";bytes="{\"message\":\"SPACE_RESPONSE_OK\",\"count\":3}".getBytes();}
+            if(path.equals("/redirect")){status="302 Found";extra="Location: /final\r\n";bytes=new byte[0];}
+            if(path.equals("/binary")){mime="application/octet-stream";bytes=new byte[]{0,1,2,3,65,66,67,(byte)255};}
+            if(path.equals("/gzip")){mime="application/json";ByteArrayOutputStream buffer=new ByteArrayOutputStream();try(java.util.zip.GZIPOutputStream gzip=new java.util.zip.GZIPOutputStream(buffer)){gzip.write("{\"compressed\":\"SPACE_GZIP_OK\"}".getBytes());}bytes=buffer.toByteArray();extra="Content-Encoding: gzip\r\n";}
+            OutputStream out=socket.getOutputStream();out.write(("HTTP/1.1 "+status+"\r\nContent-Type: "+mime+"\r\nX-Space-Response: captured\r\n"+extra+"Content-Length: "+bytes.length+"\r\nConnection: close\r\n\r\n").getBytes());out.write(bytes);out.flush();
         }catch(IOException ignored){}},"test-http").start();
         activity=getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         getInstrumentation().waitForIdleSync();
@@ -46,6 +52,24 @@ public final class BrowserSmokeTest extends InstrumentationTestCase {
         assertNotNull(web);final WebView target=web;
         AtomicReference<String> title=new AtomicReference<>();getInstrumentation().runOnMainSync(()->title.set(target.getTitle()));assertEquals("Space test page",title.get());
         screenshot("02-browsing.png");
+        java.lang.reflect.Field activeTab=MainActivity.class.getDeclaredField("current");activeTab.setAccessible(true);
+        MainActivity.Tab browserTab=(MainActivity.Tab)activeTab.get(activity);
+        NetworkRecorder recorder=browserTab.network;assertNotNull("Capture is enabled by default",recorder);
+        for(int i=0;i<100;i++){boolean ready=false;for(NetworkRecord r:recorder.snapshots())if(r.url.endsWith("/gzip")&&r.responseBody.length>0)ready=true;if(ready)break;Thread.sleep(100);}
+        assertTrue("CDP must attach to this process's actual WebView: "+recorder.state(),recorder.connected());
+        NetworkRecord post=null,gzip=null,binary=null;boolean redirect=false,document=false;
+        for(NetworkRecord r:recorder.snapshots()){if(r.url.endsWith("/api"))post=r;if(r.url.endsWith("/gzip"))gzip=r;if(r.url.endsWith("/binary"))binary=r;if(r.status==302)redirect=true;if(r.type.equals("Document"))document=true;}
+        assertTrue("Initial document must be captured",document);assertNotNull("Fetch POST captured",post);assertEquals("POST",post.method);
+        assertTrue(post.requestText().contains("SPACE_POST_OK"));assertTrue("Actual User-Agent must be available",NetworkFormats.header(post.requestHeaders,"User-Agent").contains("Mozilla"));
+        assertEquals("yes",NetworkFormats.header(post.requestHeaders,"X-Space-Test"));assertEquals("captured",NetworkFormats.header(post.responseHeaders,"X-Space-Response"));
+        assertTrue(new String(post.responseBody).contains("SPACE_RESPONSE_OK"));assertNotNull(gzip);assertTrue(new String(gzip.responseBody).contains("SPACE_GZIP_OK"));assertNotNull(binary);assertEquals(8,binary.responseBody.length);assertTrue("Redirect hop preserved",redirect);
+        assertTrue(NetworkFormats.matches(post,"space_post_ok"));assertTrue(NetworkFormats.matches(gzip,"space_gzip_ok"));assertFalse(NetworkFormats.matches(post,"nonexistent_test_phrase"));
+        String har=NetworkFormats.har(recorder.snapshots());java.util.List<NetworkRecord> imported=NetworkFormats.importHar(har);assertEquals(recorder.snapshots().size(),imported.size());
+        String mask=NetworkFormats.masked("Authorization: Bearer secret\nCookie: session=secret\n{\"access_token\":\"secret\"}\nhttps://example.test/?api_key=secret");assertFalse(mask.contains("secret"));
+        NetworkRecord decoder=new NetworkRecord(1,"decoder","");decoder.responseBody="eyJvayI6dHJ1ZX0=".getBytes();assertTrue(NetworkFormats.body(decoder,false,true,"Base64").contains("{\"ok\":true}"));
+        recorder.pin(post.id);recorder.clear();assertEquals(1,recorder.snapshots().size());assertTrue(recorder.snapshots().get(0).pinned);
+        // Reload after exercising clear so screenshots show a complete, real trace.
+        getInstrumentation().runOnMainSync(target::reload);Thread.sleep(1800);
         getInstrumentation().runOnMainSync(()->find(activity.getWindow().getDecorView(),"Tabs").performClick());
         getInstrumentation().waitForIdleSync();screenshot("03-tabs.png");
         getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
@@ -53,7 +77,12 @@ public final class BrowserSmokeTest extends InstrumentationTestCase {
         getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
         // Directly invoke the menu action to inspect real session data in the native developer panel.
         getInstrumentation().runOnMainSync(()->{try{java.lang.reflect.Method m=MainActivity.class.getDeclaredMethod("showDevTools");m.setAccessible(true);m.invoke(activity);}catch(Exception e){throw new RuntimeException(e);}});
-        getInstrumentation().waitForIdleSync();screenshot("05-developer-tools.png");getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+        getInstrumentation().waitForIdleSync();Thread.sleep(500);screenshot("05-developer-tools.png");
+        getInstrumentation().runOnMainSync(()->{android.widget.ListView requests=findList(activity.getWindow().getDecorView());assertNotNull(requests);assertTrue(requests.getCount()>0);requests.performItemClick(requests.getChildAt(0),0,0);});
+        screenshot("07-network-overview.png");
+        getInstrumentation().runOnMainSync(()->findText(activity.getWindow().getDecorView(),"Request").performClick());screenshot("08-network-request.png");
+        getInstrumentation().runOnMainSync(()->{findText(activity.getWindow().getDecorView(),"Response").performClick();findText(activity.getWindow().getDecorView(),"Text").performClick();});screenshot("09-network-response.png");
+        getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
         getInstrumentation().runOnMainSync(()->{
             assertFalse(target.getSettings().getAllowFileAccess());assertFalse(target.getSettings().getAllowContentAccess());
             assertFalse(android.webkit.CookieManager.getInstance().acceptThirdPartyCookies(target));
@@ -85,6 +114,8 @@ public final class BrowserSmokeTest extends InstrumentationTestCase {
         }catch(Exception e){throw new RuntimeException(e);}});
         getInstrumentation().waitForIdleSync();screenshot("06-light.png");
     }
+    private android.widget.ListView findList(View v){if(v instanceof android.widget.ListView)return (android.widget.ListView)v;if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++){android.widget.ListView found=findList(((ViewGroup)v).getChildAt(i));if(found!=null)return found;}return null;}
+    private View findText(View v,String text){if(v instanceof android.widget.TextView&&text.contentEquals(((android.widget.TextView)v).getText()))return v;if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++){View found=findText(((ViewGroup)v).getChildAt(i),text);if(found!=null)return found;}return null;}
     private View find(View v,String description){if(description.contentEquals(v.getContentDescription()==null?"":v.getContentDescription()))return v;if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++){View found=find(((ViewGroup)v).getChildAt(i),description);if(found!=null)return found;}return null;}
     private WebView findWeb(View v){if(v instanceof WebView)return (WebView)v;if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++){WebView w=findWeb(((ViewGroup)v).getChildAt(i));if(w!=null)return w;}return null;}
     private void screenshot(String name) throws Exception {Thread.sleep(300);Bitmap image=getInstrumentation().getUiAutomation().takeScreenshot();File dir=new File(getInstrumentation().getTargetContext().getExternalFilesDir(null),"screenshots");dir.mkdirs();try(FileOutputStream out=new FileOutputStream(new File(dir,name))){image.compress(Bitmap.CompressFormat.PNG,100,out);}image.recycle();}
