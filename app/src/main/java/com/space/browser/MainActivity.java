@@ -60,13 +60,13 @@ public class MainActivity extends Activity {
         NetworkRecorder network;
         NetworkInspector inspector;
         Tab inspected;
-        boolean attaching;
+        boolean attaching,clearCaptureHistory;
     }
     protected boolean privateMode() { return false; }
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        store=new BrowserStore(this); shields=new ShieldEngine(this);
+        store=new BrowserStore(this); shields=new ShieldEngine(this);CaptureStorage.init(getCacheDir(),privateMode());
         totalBlocked.set(privateMode()?0:store.prefs.getInt("blocked",0));
         captureEnabled=store.prefs.getBoolean("dev_capture",true);
         WebView.setWebContentsDebuggingEnabled(captureEnabled);
@@ -149,7 +149,7 @@ public class MainActivity extends Activity {
         for(Tab t:tabs)if(live>MAX_LIVE_TABS&&t!=current&&(current==null||current.inspected!=t)&&t.web!=null){if(t.network!=null)t.network.close();t.web.destroy();t.web=null;live--;}
     }
     private void closeTab(Tab t) {
-        boolean selected=t==current;if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.close();if(t.web!=null){if(t.web.getParent()!=null)((android.view.ViewGroup)t.web.getParent()).removeView(t.web);t.web.destroy();}
+        boolean selected=t==current;if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.dispose();if(t.web!=null){if(t.web.getParent()!=null)((android.view.ViewGroup)t.web.getParent()).removeView(t.web);t.web.destroy();}
         tabs.remove(t);if(tabs.isEmpty()){current=null;newTab("");}else if(selected)switchTab(tabs.get(tabs.size()-1));updateChrome();saveSession();
     }
     private void navigate(String input) {
@@ -160,7 +160,7 @@ public class MainActivity extends Activity {
         stage.addView(current.web,new FrameLayout.LayoutParams(-1,-1));current.web.onResume();if(!created&&!current.attaching)current.web.loadUrl(url);updateChrome();trimTabs();
     }
     private void updateChrome() {
-        if(current==null||address==null)return;
+        if(current==null||address==null)return;addressRow.setVisibility(current.inspector==null?View.VISIBLE:View.GONE);if(current.inspector!=null)progress.setVisibility(View.INVISIBLE);
         if(!address.hasFocus())address.setText(current.url.isEmpty()?"":current.url);
         tabCount.setText(String.valueOf(tabs.size()));address.setHint(privateMode()?"Private search or address":"Search or enter address");
     }
@@ -219,6 +219,7 @@ public class MainActivity extends Activity {
                 if(!BrowserLogic.webUrl(url))return;if(captureEnabled&&t.network==null)attachCapture(t,url,false);t.url=url;t.site=BrowserLogic.host(url);t.reader=false;if(t==current){progress.setVisibility(View.VISIBLE);updateChrome();}saveSession();
             }
             @Override public void onPageFinished(WebView view,String url){
+                if(t.clearCaptureHistory&&BrowserLogic.webUrl(url)){view.clearHistory();t.clearCaptureHistory=false;}
                 if(t==current){progress.setVisibility(View.INVISIBLE);updateChrome();}
                 if(!privateMode()&&BrowserLogic.webUrl(url)&&!clearing)store.add("history",t.title,url,500);saveSession();
             }
@@ -254,11 +255,11 @@ public class MainActivity extends Activity {
         });
         w.setDownloadListener((url,ua,disposition,mime,length)->confirmDownload(url,ua,disposition,mime));
         w.setOnLongClickListener(v->{WebView.HitTestResult hit=w.getHitTestResult();String url=hit.getExtra();if(url!=null&&BrowserLogic.webUrl(url)){showLinkActions(url);return true;}return false;});
-        if(BrowserLogic.webUrl(t.url)){if(captureEnabled){String marker="about:blank#space-"+UUID.randomUUID();w.loadUrl(marker);attachCapture(t,marker,true);}else w.loadUrl(t.url);}
+        if(BrowserLogic.webUrl(t.url)){if(captureEnabled){t.clearCaptureHistory=true;String marker="about:blank#space-"+UUID.randomUUID();w.loadUrl(marker);attachCapture(t,marker,true);}else w.loadUrl(t.url);}
     }
     private void attachCapture(Tab t,String marker,boolean navigateWhenReady){
-        if(t.network!=null)t.network.close();t.network=new NetworkRecorder();t.network.setLimit(store.prefs.getInt("dev_limit",2000));t.attaching=true;WebView target=t.web;
-        t.network.attach(marker,()->handler.post(()->{if(t.web!=target)return;t.attaching=false;if(navigateWhenReady&&BrowserLogic.webUrl(t.url))target.loadUrl(t.url);}));
+        if(t.network==null)t.network=new NetworkRecorder();t.network.setLimit(store.prefs.getInt("dev_limit",2000));t.attaching=true;WebView target=t.web;
+        t.network.attach(marker,()->handler.post(()->{if(isDestroyed()||t.web!=target||!tabs.contains(t))return;t.attaching=false;if(navigateWhenReady&&BrowserLogic.webUrl(t.url))target.loadUrl(t.url);}));
     }
     private void setDesktop(Tab t){if(t.web==null)return;String ua=WebSettings.getDefaultUserAgent(this);t.web.getSettings().setUserAgentString(t.desktop?ua.replace("; wv","").replace("Mobile ","").replaceAll("\\(Linux; Android [^)]+\\)","(X11; Linux x86_64)"):ua);}
     private void saveSession(){
@@ -271,7 +272,7 @@ public class MainActivity extends Activity {
     private void exitFullscreen(){if(fullscreen==null)return;((ViewGroup)fullscreen.getParent()).removeView(fullscreen);fullscreen=null;root.setVisibility(View.VISIBLE);if(fullscreenCallback!=null)fullscreenCallback.onCustomViewHidden();fullscreenCallback=null;getWindow().getDecorView().setSystemUiVisibility(dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);}
     @Override protected void onPause(){super.onPause();saveSession();if(!privateMode())store.prefs.edit().putInt("blocked",totalBlocked.get()).apply();if(current!=null&&current.web!=null&&fullscreen==null)current.web.onPause();}
     @Override protected void onResume(){super.onResume();if(current!=null&&current.web!=null)current.web.onResume();}
-    @Override protected void onDestroy(){if(uploadCallback!=null)uploadCallback.onReceiveValue(null);if(pendingPermission!=null)pendingPermission.deny();handler.removeCallbacksAndMessages(null);for(Tab t:tabs){if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.close();if(t.web!=null)t.web.destroy();}for(NetworkRecorder r:importedCaptures)r.close();super.onDestroy();}
+    @Override protected void onDestroy(){if(uploadCallback!=null)uploadCallback.onReceiveValue(null);if(pendingPermission!=null)pendingPermission.deny();handler.removeCallbacksAndMessages(null);for(Tab t:tabs){if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.dispose();if(t.web!=null)t.web.destroy();}for(NetworkRecorder r:importedCaptures)r.close();CaptureStorage.clearSession();super.onDestroy();}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_SHORT).show();}
     private Dialog sheet(String title,String subtitle,java.util.function.Consumer<LinearLayout> body){
         Dialog d=new Dialog(this);LinearLayout container=column();container.setPadding(dp(22),dp(14),dp(22),dp(24));container.setBackground(surface(panel,26));
@@ -347,9 +348,9 @@ public class MainActivity extends Activity {
             action(list,"code","About Space","Version 1.1.0 · native Android",()->new AlertDialog.Builder(this).setTitle("Space Browser 1.1.0").setMessage("Built with native Android views and your device's Android System WebView. No analytics SDKs, account or cloud sync.\n\nAndroid 10 or newer. Keep Android System WebView updated.\n\nFilters: StevenBlack unified hosts with bundled source attribution.\n\nNetwork tools capture real WebView events and available bodies. Body limits and unavailable data are labeled. AI sends messages to your configured gateway only when you press Send.").setPositiveButton("Got it",null).show());
         });
     }
-    private void destroyTabs(){stage.removeAllViews();for(Tab t:tabs){if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.close();if(t.web!=null){t.web.stopLoading();t.web.destroy();}}tabs.clear();current=null;}
+    private void destroyTabs(){stage.removeAllViews();for(Tab t:tabs){if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.dispose();if(t.web!=null){t.web.stopLoading();t.web.destroy();}}tabs.clear();current=null;}
     private void clearBrowsingData(){
-        clearing=true;destroyTabs();WebView cleaner=new WebView(this);cleaner.clearCache(true);cleaner.clearHistory();cleaner.clearFormData();cleaner.destroy();WebStorage.getInstance().deleteAllData();WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();
+        clearing=true;destroyTabs();importedCaptures.clear();CaptureStorage.clearSession();WebView cleaner=new WebView(this);cleaner.clearCache(true);cleaner.clearHistory();cleaner.clearFormData();cleaner.destroy();WebStorage.getInstance().deleteAllData();WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();
         CookieManager.getInstance().removeAllCookies(done->{CookieManager.getInstance().flush();store.prefs.edit().remove("history").remove("session").apply();clearing=false;newTab("");toast("Browsing data cleared");});
     }
     private void showFind(){
@@ -383,7 +384,7 @@ public class MainActivity extends Activity {
     void setCapture(boolean enabled){
         if(captureEnabled==enabled)return;captureEnabled=enabled;store.prefs.edit().putBoolean("dev_capture",enabled).apply();WebView.setWebContentsDebuggingEnabled(enabled);
         for(Tab t:tabs)if(t.web!=null){if(enabled)attachCapture(t,t.web.getUrl()==null?t.url:t.web.getUrl(),false);else if(t.network!=null)t.network.close();}
-        toast(enabled?"Capture enabled. Reload the page and reopen tools for a complete trace.":"Capture disabled");
+        toast(enabled?"Capture enabled. Reload the page for a complete trace.":"Capture disabled");
     }
     void saveDevFile(byte[] data,String name,String mime){pendingExport=data;try{startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(mime).putExtra(Intent.EXTRA_TITLE,name),201);}catch(Exception e){pendingExport=null;toast("No file picker available");}}
     void importDevHar(){try{startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),202);}catch(Exception e){toast("No file picker available");}}
