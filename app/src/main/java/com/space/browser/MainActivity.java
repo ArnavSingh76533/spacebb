@@ -94,6 +94,13 @@ public class MainActivity extends Activity {
     private int dp(float n) { return Math.round(n*getResources().getDisplayMetrics().density); }
     private GradientDrawable surface(int color,int radius) { GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g; }
     private GradientDrawable outlined(int color,int radius) { GradientDrawable g=surface(color,radius);g.setStroke(dp(1),line);return g; }
+    private GradientDrawable cyberPanel(int color,int strokeColor,int radius) {
+        GradientDrawable g=new GradientDrawable();
+        g.setColor(color);
+        g.setCornerRadius(dp(radius));
+        g.setStroke(dp(1.2f),strokeColor);
+        return g;
+    }
     private LinearLayout column() { LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);return l; }
     private LinearLayout row() { LinearLayout l=new LinearLayout(this);l.setGravity(Gravity.CENTER_VERTICAL);return l; }
     private TextView text(String value,int size,int color,boolean bold) {
@@ -108,8 +115,13 @@ public class MainActivity extends Activity {
         f.setOnClickListener(v->action.run()); f.setOnLongClickListener(v->{toast(label);return true;}); return f;
     }
     private void palette() {
-        bg=Color.parseColor(dark?"#0B0D14":"#F7F5FB");panel=Color.parseColor(dark?"#151822":"#FFFFFF");ink=Color.parseColor(dark?"#F5F2FF":"#201B32");
-        muted=Color.parseColor(dark?"#9195AA":"#706A80");line=Color.parseColor(dark?"#272B3A":"#E6E1EF");accent=Color.parseColor(dark?"#B5A0FF":"#7050CD");
+        // Futuristic Cybernetic Palette: Deep space void, holographic borders, bioluminescent cyan & ultraviolet
+        bg=Color.parseColor(dark?"#060810":"#F4F7FB");
+        panel=Color.parseColor(dark?"#0E1322":"#FFFFFF");
+        ink=Color.parseColor(dark?"#F0F4FF":"#141926");
+        muted=Color.parseColor(dark?"#7C8BA6":"#687690");
+        line=Color.parseColor(dark?"#1C253B":"#E1E8F2");
+        accent=Color.parseColor(dark?"#00F5D4":"#00B89C");
     }
     private void buildShell() {
         palette();if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);getWindow().setStatusBarColor(bg);getWindow().setNavigationBarColor(bg);
@@ -121,9 +133,11 @@ public class MainActivity extends Activity {
         toolbar.addView(button("home","New tab",()->newTab("")),new LinearLayout.LayoutParams(dp(44),dp(48)));
         addressSlot=new FrameLayout(this);toolbar.addView(addressSlot,new LinearLayout.LayoutParams(0,dp(48),1));
         FrameLayout tabButton=new FrameLayout(this);tabButton.setContentDescription("Tabs");tabButton.setFocusable(true);tabButton.setOnClickListener(v->showTabs());
-        tabCount=text("1",13,ink,true);tabCount.setGravity(Gravity.CENTER);tabCount.setBackground(outlined(Color.TRANSPARENT,6));tabButton.addView(tabCount,new FrameLayout.LayoutParams(dp(24),dp(25),Gravity.CENTER));
+        tabCount=text("1",13,accent,true);tabCount.setGravity(Gravity.CENTER);
+        tabCount.setBackground(cyberPanel(dark?0x3300F5D4:0x1A00B89C,accent,8));
+        tabButton.addView(tabCount,new FrameLayout.LayoutParams(dp(26),dp(26),Gravity.CENTER));
         toolbar.addView(tabButton,new LinearLayout.LayoutParams(dp(48),dp(48)));toolbar.addView(button("menu","Browser menu",this::showMenu),new LinearLayout.LayoutParams(dp(44),dp(48)));
-        addressRow=row();addressRow.setBackground(outlined(panel,24));
+        addressRow=row();addressRow.setBackground(cyberPanel(panel,dark?0x5500F5D4:0x44B0C4DE,24));
         addressRow.addView(button("shield","Site shields",this::showShields),new LinearLayout.LayoutParams(dp(36),dp(44)));
         address=new EditText(this);address.setId(R.id.address_bar);address.setTextColor(ink);address.setHintTextColor(muted);address.setTextSize(14);address.setSingleLine(true);address.setSelectAllOnFocus(true);address.setHint("Search or enter address");address.setBackgroundColor(Color.TRANSPARENT);address.setPadding(0,0,0,0);address.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);address.setImeOptions(EditorInfo.IME_ACTION_GO);address.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
         addressRow.addView(address,new LinearLayout.LayoutParams(0,-1,1));addressRow.addView(button("refresh","Reload page",()->{if(current!=null&&current.web!=null)current.web.reload();}),new LinearLayout.LayoutParams(dp(36),dp(44)));
@@ -162,19 +176,58 @@ public class MainActivity extends Activity {
         FrameLayout destination=current.url.isEmpty()&&homeAddressSlot!=null?homeAddressSlot:addressSlot;
         if(current.inspector==null&&addressRow.getParent()!=destination){if(addressRow.getParent()!=null)((ViewGroup)addressRow.getParent()).removeView(addressRow);destination.removeAllViews();destination.addView(addressRow,new FrameLayout.LayoutParams(-1,-1));}
         addressRow.setVisibility(current.inspector==null?View.VISIBLE:View.GONE);
-        if(current.url.isEmpty()&&addressSlot.getChildCount()==0){TextView brand=text("space",23,ink,true);brand.setGravity(Gravity.CENTER_VERTICAL);addressSlot.addView(brand,new FrameLayout.LayoutParams(-1,-1));}
+        if(current.url.isEmpty()&&addressSlot.getChildCount()==0){
+            TextView brand=text("SPACE // OS",17,accent,true);
+            brand.setLetterSpacing(0.08f);
+            brand.setGravity(Gravity.CENTER_VERTICAL);
+            addressSlot.addView(brand,new FrameLayout.LayoutParams(-1,-1));
+        }
         if(!address.hasFocus())address.setText(current.url.isEmpty()?"":current.url);
         tabCount.setText(String.valueOf(tabs.size()));address.setHint(privateMode()?"Private search or address":"Search or enter address");
     }
     private void showHome() {
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
-        LinearLayout content=column();content.setGravity(Gravity.CENTER);content.setPadding(dp(24),dp(20),dp(24),dp(70));scroll.addView(content,new ScrollView.LayoutParams(-1,-1));
-        content.addView(new OrbitView(this),new LinearLayout.LayoutParams(-1,dp(170)));
-        TextView brand=text(privateMode()?"Space · Private":"Space",36,ink,true);brand.setLetterSpacing(-.04f);content.addView(brand);gap(content,26);
-        homeAddressSlot=new FrameLayout(this);content.addView(homeAddressSlot,new LinearLayout.LayoutParams(-1,dp(60)));gap(content,28);
+        LinearLayout content=column();content.setGravity(Gravity.CENTER);content.setPadding(dp(24),dp(16),dp(24),dp(70));scroll.addView(content,new ScrollView.LayoutParams(-1,-1));
+        
+        // Futuristic Status Telemetry Badge
+        LinearLayout telemetry=row();
+        telemetry.setPadding(dp(12),dp(4),dp(12),dp(4));
+        telemetry.setBackground(cyberPanel(dark?0x2200F5D4:0x1200B89C,accent,16));
+        View pulse=new View(this);
+        pulse.setBackground(surface(accent,4));
+        telemetry.addView(pulse,new LinearLayout.LayoutParams(dp(7),dp(7)));
+        TextView telemetryText=text(privateMode()?"  SECURE PROCESS ISOLATED":"  QUANTUM WEB RUNTIME ONLINE",10,accent,true);
+        telemetryText.setLetterSpacing(0.06f);
+        telemetry.addView(telemetryText);
+        content.addView(telemetry,new LinearLayout.LayoutParams(-2,-2));
+        gap(content,12);
+
+        content.addView(new OrbitView(this),new LinearLayout.LayoutParams(-1,dp(185)));
+        TextView brand=text(privateMode()?"Space · Private":"Space",36,ink,true);
+        brand.setLetterSpacing(-.03f);
+        content.addView(brand);
+        TextView subbrand=text("HIGH-SPEED AD-FREE CELLULAR NAVIGATION",10,muted,true);
+        subbrand.setLetterSpacing(0.12f);
+        content.addView(subbrand);
+        gap(content,22);
+
+        homeAddressSlot=new FrameLayout(this);content.addView(homeAddressSlot,new LinearLayout.LayoutParams(-1,dp(60)));gap(content,26);
         LinearLayout shortcuts=row();String[][] links={{"G","Google","https://www.google.com"},{"▶","YouTube","https://m.youtube.com"},{"W","Wikipedia","https://en.wikipedia.org"},{"⌘","GitHub","https://github.com"}};
-        for(String[] link:links){LinearLayout item=column();item.setGravity(Gravity.CENTER);TextView tile=text(link[0],23,accent,true);tile.setGravity(Gravity.CENTER);tile.setBackground(outlined(panel,20));item.addView(tile,new LinearLayout.LayoutParams(dp(54),dp(54)));gap(item,8);item.addView(text(link[1],11,muted,false));item.setContentDescription("Open "+link[1]);item.setOnClickListener(v->navigate(link[2]));shortcuts.addView(item,new LinearLayout.LayoutParams(0,-2,1));}content.addView(shortcuts,new LinearLayout.LayoutParams(-1,-2));gap(content,26);
-        TextView aiLaunch=text("✦  Ask Space AI",14,accent,true);aiLaunch.setPadding(dp(20),dp(14),dp(20),dp(14));aiLaunch.setBackground(outlined(panel,24));aiLaunch.setOnClickListener(v->showAi(Collections.emptyList(),AiContext.SUMMARY));content.addView(aiLaunch);
+        for(String[] link:links){
+            LinearLayout item=column();item.setGravity(Gravity.CENTER);
+            TextView tile=text(link[0],22,accent,true);tile.setGravity(Gravity.CENTER);
+            tile.setBackground(cyberPanel(panel,dark?0x4400F5D4:line,18));
+            item.addView(tile,new LinearLayout.LayoutParams(dp(54),dp(54)));gap(item,8);
+            TextView label=text(link[1],11,muted,true);
+            label.setLetterSpacing(0.04f);
+            item.addView(label);
+            item.setContentDescription("Open "+link[1]);item.setOnClickListener(v->navigate(link[2]));
+            shortcuts.addView(item,new LinearLayout.LayoutParams(0,-2,1));
+        }
+        content.addView(shortcuts,new LinearLayout.LayoutParams(-1,-2));gap(content,26);
+        TextView aiLaunch=text("✦  Ask Space AI",14,accent,true);aiLaunch.setPadding(dp(22),dp(14),dp(22),dp(14));
+        aiLaunch.setBackground(cyberPanel(dark?0x337B2CBF:0x1A7B2CBF,dark?0xFF9D4EDD:accent,24));
+        aiLaunch.setOnClickListener(v->showAi(Collections.emptyList(),AiContext.SUMMARY));content.addView(aiLaunch);
         home=scroll;stage.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
     }
     private int sessionBlocked(){int total=0;for(Tab t:tabs)total+=t.blocked.get();return total;}
@@ -219,7 +272,6 @@ public class MainActivity extends Activity {
             }
         });
         w.setWebChromeClient(new WebChromeClient(){
-            
             @Override public void onReceivedTitle(WebView view,String title){t.title=title==null?"Page":title;saveSession();}
             @Override public boolean onCreateWindow(WebView view,boolean dialog,boolean gesture,Message result){
                 if(!gesture||tabs.size()>=MAX_TABS)return false;
@@ -264,17 +316,20 @@ public class MainActivity extends Activity {
     @Override protected void onDestroy(){if(ai!=null)ai.dispose();stopPlayback();PlaybackService.controller=null;if(uploadCallback!=null)uploadCallback.onReceiveValue(null);if(pendingPermission!=null)pendingPermission.deny();handler.removeCallbacksAndMessages(null);for(Tab t:tabs){if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.dispose();if(t.web!=null)t.web.destroy();}for(NetworkRecorder r:importedCaptures)r.close();CaptureStorage.clearSession();super.onDestroy();}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_SHORT).show();}
     private Dialog sheet(String title,String subtitle,java.util.function.Consumer<LinearLayout> body){
-        Dialog d=new Dialog(this);LinearLayout container=column();container.setPadding(dp(22),dp(14),dp(22),dp(24));container.setBackground(surface(panel,26));
-        View handle=new View(this);handle.setBackground(surface(line,3));LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(dp(36),dp(4));hp.gravity=Gravity.CENTER_HORIZONTAL;hp.bottomMargin=dp(18);container.addView(handle,hp);
+        Dialog d=new Dialog(this);LinearLayout container=column();container.setPadding(dp(22),dp(14),dp(22),dp(24));
+        container.setBackground(cyberPanel(panel,dark?0x4400F5D4:line,26));
+        View handle=new View(this);
+        handle.setBackground(cyberPanel(dark?0x8800F5D4:line,accent,3));
+        LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(dp(42),dp(4));hp.gravity=Gravity.CENTER_HORIZONTAL;hp.bottomMargin=dp(18);container.addView(handle,hp);
         LinearLayout heading=row();heading.addView(text(title,24,ink,true),new LinearLayout.LayoutParams(0,-2,1));heading.addView(button("close","Close panel",d::dismiss),new LinearLayout.LayoutParams(dp(48),dp(48)));container.addView(heading);
         if(subtitle!=null){TextView sub=text(subtitle,12,muted,false);sub.setPadding(0,0,0,dp(14));container.addView(sub);}
         ScrollView scroll=new ScrollView(this);LinearLayout contents=column();scroll.addView(contents);container.addView(scroll,new LinearLayout.LayoutParams(-1,-2));body.accept(contents);d.setContentView(container);
-        Window win=d.getWindow();if(win!=null){if(privateMode())win.addFlags(WindowManager.LayoutParams.FLAG_SECURE);win.setBackgroundDrawableResource(android.R.color.transparent);win.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams a=win.getAttributes();a.width=-1;a.height=-2;a.gravity=Gravity.BOTTOM;a.dimAmount=.5f;win.setAttributes(a);win.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);}
+        Window win=d.getWindow();if(win!=null){if(privateMode())win.addFlags(WindowManager.LayoutParams.FLAG_SECURE);win.setBackgroundDrawableResource(android.R.color.transparent);win.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams a=win.getAttributes();a.width=-1;a.height=-2;a.gravity=Gravity.BOTTOM;a.dimAmount=.6f;win.setAttributes(a);win.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);}
         d.show(); if(win!=null) {win.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels,dp(620)),-2);container.post(()->{int limit=(int)(getResources().getDisplayMetrics().heightPixels*.82);if(container.getHeight()>limit)win.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels,dp(620)),limit);});}return d;
     }
     private void action(LinearLayout list,String icon,String title,String subtitle,Runnable run){
         LinearLayout r=row();r.setPadding(0,dp(8),0,dp(8));r.setMinimumHeight(dp(60));r.setFocusable(true);r.setContentDescription(title+(subtitle==null?"":", "+subtitle));
-        FrameLayout bubble=new FrameLayout(this);bubble.setBackground(surface(bg,12));bubble.addView(new SpaceIcon(this,icon,accent),new FrameLayout.LayoutParams(dp(20),dp(20),Gravity.CENTER));r.addView(bubble,new LinearLayout.LayoutParams(dp(40),dp(40)));
+        FrameLayout bubble=new FrameLayout(this);bubble.setBackground(cyberPanel(bg,dark?0x3300F5D4:line,12));bubble.addView(new SpaceIcon(this,icon,accent),new FrameLayout.LayoutParams(dp(20),dp(20),Gravity.CENTER));r.addView(bubble,new LinearLayout.LayoutParams(dp(40),dp(40)));
         LinearLayout labels=column();labels.setPadding(dp(14),0,dp(8),0);labels.addView(text(title,15,ink,true));if(subtitle!=null){TextView s=text(subtitle,11,muted,false);s.setMaxLines(2);labels.addView(s);}r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));r.addView(new SpaceIcon(this,"arrow",muted),new LinearLayout.LayoutParams(dp(16),dp(16)));r.setOnClickListener(v->run.run());list.addView(r,new LinearLayout.LayoutParams(-1,-2));
     }
     private void toggle(LinearLayout list,String title,String description,boolean value,java.util.function.Consumer<Boolean> change){
@@ -283,7 +338,10 @@ public class MainActivity extends Activity {
     }
     private void showTabs(){
         final Dialog[] dialog=new Dialog[1];dialog[0]=sheet(privateMode()?"Private tabs":"Your open spaces",tabs.size()+" tabs · up to 4 kept in memory",list->{
-            for(Tab t:new ArrayList<>(tabs)){LinearLayout r=row();r.setPadding(dp(12),dp(8),dp(2),dp(8));r.setBackground(outlined(t==current?(dark?0xFF25203B:0xFFEFE8FF):bg,16));
+            for(Tab t:new ArrayList<>(tabs)){LinearLayout r=row();r.setPadding(dp(12),dp(8),dp(2),dp(8));
+                int cardBg=t==current?(dark?0xFF131D33:0xFFE2F0FD):bg;
+                int cardBorder=t==current?accent:(dark?0x2600F5D4:line);
+                r.setBackground(cyberPanel(cardBg,cardBorder,16));
                 LinearLayout labels=column();TextView title=text(t.url.isEmpty()?"New tab":t.title,15,ink,true);title.setMaxLines(1);labels.addView(title);TextView url=text(t.url.isEmpty()?"Ready to explore":BrowserLogic.host(t.url)+(t.web==null?" · sleeping":""),11,muted,false);url.setMaxLines(1);labels.addView(url);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));labels.setPadding(0,dp(9),0,dp(9));labels.setOnClickListener(v->{dialog[0].dismiss();switchTab(t);});r.addView(button("close","Close "+t.title,()->{dialog[0].dismiss();closeTab(t);showTabs();}),new LinearLayout.LayoutParams(dp(48),dp(48)));list.addView(r);gap(list,8);}
             action(list,"plus","New tab","A fresh place to start",()->{dialog[0].dismiss();newTab("");});
             if(tabs.size()>1)action(list,"close","Close all tabs",null,()->new SpaceDialogBuilder(this).setTitle("Close all tabs?").setMessage("All open tabs in this session will close.").setNegativeButton("Cancel",null).setPositiveButton("Close tabs",(a,b)->{dialog[0].dismiss();destroyTabs();newTab("");}).show());
