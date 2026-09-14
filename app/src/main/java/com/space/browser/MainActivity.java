@@ -35,7 +35,11 @@ public class MainActivity extends Activity {
     private FrameLayout stage;
     private EditText address;
     private TextView tabCount;
-    private ProgressBar progress;
+    private FrameLayout addressSlot,homeAddressSlot;
+    private AiConversation aiChat;
+    private SpaceAi ai;
+    private boolean foreground;
+    private Tab playbackTab;
     private View home, fullscreen;
     private WebChromeClient.CustomViewCallback fullscreenCallback;
     private ValueCallback<Uri[]> uploadCallback;
@@ -55,7 +59,7 @@ public class MainActivity extends Activity {
         WebView web;
         String url="", title="New tab";
         volatile String site="";
-        boolean desktop, reader;
+        boolean desktop, reader,mediaPlaying;
         final AtomicInteger blocked=new AtomicInteger();
         NetworkRecorder network;
         NetworkInspector inspector;
@@ -74,7 +78,7 @@ public class MainActivity extends Activity {
         shieldsOn=store.prefs.getBoolean("shields",true);
         allowedSites=new HashSet<>(store.prefs.getStringSet("allowSites",Collections.emptySet()));
         if(privateMode()) getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-        buildShell();
+        buildShell();PlaybackService.controller=new PlaybackService.Controller(){public void play(){mediaCommand(true);}public void pause(){mediaCommand(false);}public void stop(){stopPlayback();}};handler.post(mediaPoll);
         if(!privateMode()) {
             for(BrowserStore.Entry e:store.entries("session")) { if(tabs.size()>=MAX_TABS)break; Tab t=new Tab(); t.url=e.url;t.title=e.title;tabs.add(t); }
         }
@@ -111,45 +115,39 @@ public class MainActivity extends Activity {
         palette();if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);getWindow().setStatusBarColor(bg);getWindow().setNavigationBarColor(bg);
         getWindow().getDecorView().setSystemUiVisibility(dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         root=column();root.setBackgroundColor(bg);root.setFitsSystemWindows(true);setContentView(root);
-        if (Build.VERSION.SDK_INT >= 30) root.setOnApplyWindowInsetsListener((v,insets)->{android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.ime());v.setPadding(bars.left,bars.top,bars.right,bars.bottom);return WindowInsets.CONSUMED;});
-        stage=new FrameLayout(this);root.addView(stage,new LinearLayout.LayoutParams(-1,0,1));
-        chrome=column();chrome.setPadding(dp(12),dp(6),dp(12),0);root.addView(chrome,new LinearLayout.LayoutParams(-1,-2));
-        progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setProgressTintList(android.content.res.ColorStateList.valueOf(accent));
-        chrome.addView(progress,new LinearLayout.LayoutParams(-1,dp(2)));progress.setVisibility(View.INVISIBLE);
-        addressRow=row();addressRow.setBackground(outlined(panel,20));
-        LinearLayout.LayoutParams arp=new LinearLayout.LayoutParams(-1,dp(56));arp.topMargin=dp(6);chrome.addView(addressRow,arp);
-        addressRow.addView(button("shield","Site shields",this::showShields),new LinearLayout.LayoutParams(dp(48),dp(48)));
-        address=new EditText(this);address.setId(R.id.address_bar);address.setTextColor(ink);address.setHintTextColor(muted);address.setTextSize(15);address.setSingleLine(true);address.setSelectAllOnFocus(true);
-        address.setHint("Search or enter address");address.setBackgroundColor(Color.TRANSPARENT);address.setPadding(0,0,0,0);address.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);address.setImeOptions(EditorInfo.IME_ACTION_GO);address.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
-        addressRow.addView(address,new LinearLayout.LayoutParams(0,-1,1));
-        addressRow.addView(button("refresh","Reload page",()->{if(current.web!=null&&!current.url.isEmpty())current.web.reload();}),new LinearLayout.LayoutParams(dp(48),dp(48)));
-        address.setOnEditorActionListener((v,action,event)->{if(action==EditorInfo.IME_ACTION_GO||(event!=null&&event.getKeyCode()==KeyEvent.KEYCODE_ENTER&&event.getAction()==KeyEvent.ACTION_UP)){navigate(address.getText().toString());return true;}return false;});
-        address.setOnFocusChangeListener((v,hasFocus)->{if(hasFocus&&current!=null)address.setText(current.url);else updateChrome();});
-        toolbar=row();chrome.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(58)));
-        toolbar.addView(button("back","Back",this::goBack),new LinearLayout.LayoutParams(0,dp(48),1));
-        toolbar.addView(button("next","Forward",()->{if(current.web!=null&&current.web.canGoForward())current.web.goForward();}),new LinearLayout.LayoutParams(0,dp(48),1));
-        toolbar.addView(button("home","New tab",()->newTab("")),new LinearLayout.LayoutParams(0,dp(48),1));
+        if(Build.VERSION.SDK_INT>=30)root.setOnApplyWindowInsetsListener((v,insets)->{android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.ime());v.setPadding(bars.left,bars.top,bars.right,bars.bottom);return WindowInsets.CONSUMED;});
+        chrome=column();chrome.setPadding(dp(8),dp(4),dp(8),dp(4));root.addView(chrome,new LinearLayout.LayoutParams(-1,-2));
+        toolbar=row();chrome.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(56)));
+        toolbar.addView(button("home","New tab",()->newTab("")),new LinearLayout.LayoutParams(dp(44),dp(48)));
+        addressSlot=new FrameLayout(this);toolbar.addView(addressSlot,new LinearLayout.LayoutParams(0,dp(48),1));
         FrameLayout tabButton=new FrameLayout(this);tabButton.setContentDescription("Tabs");tabButton.setFocusable(true);tabButton.setOnClickListener(v->showTabs());
         tabCount=text("1",13,ink,true);tabCount.setGravity(Gravity.CENTER);tabCount.setBackground(outlined(Color.TRANSPARENT,6));tabButton.addView(tabCount,new FrameLayout.LayoutParams(dp(24),dp(25),Gravity.CENTER));
-        toolbar.addView(tabButton,new LinearLayout.LayoutParams(0,dp(48),1));toolbar.addView(button("menu","Browser menu",this::showMenu),new LinearLayout.LayoutParams(0,dp(48),1));
-        stage.setFocusableInTouchMode(true);stage.requestFocus();
+        toolbar.addView(tabButton,new LinearLayout.LayoutParams(dp(48),dp(48)));toolbar.addView(button("menu","Browser menu",this::showMenu),new LinearLayout.LayoutParams(dp(44),dp(48)));
+        addressRow=row();addressRow.setBackground(outlined(panel,24));
+        addressRow.addView(button("shield","Site shields",this::showShields),new LinearLayout.LayoutParams(dp(36),dp(44)));
+        address=new EditText(this);address.setId(R.id.address_bar);address.setTextColor(ink);address.setHintTextColor(muted);address.setTextSize(14);address.setSingleLine(true);address.setSelectAllOnFocus(true);address.setHint("Search or enter address");address.setBackgroundColor(Color.TRANSPARENT);address.setPadding(0,0,0,0);address.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);address.setImeOptions(EditorInfo.IME_ACTION_GO);address.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
+        addressRow.addView(address,new LinearLayout.LayoutParams(0,-1,1));addressRow.addView(button("refresh","Reload page",()->{if(current!=null&&current.web!=null)current.web.reload();}),new LinearLayout.LayoutParams(dp(36),dp(44)));
+        addressSlot.addView(addressRow,new FrameLayout.LayoutParams(-1,-1));
+        address.setOnEditorActionListener((v,action,event)->{if(action==EditorInfo.IME_ACTION_GO||(event!=null&&event.getKeyCode()==KeyEvent.KEYCODE_ENTER&&event.getAction()==KeyEvent.ACTION_UP)){navigate(address.getText().toString());return true;}return false;});
+        address.setOnFocusChangeListener((v,hasFocus)->{if(hasFocus&&current!=null)address.setText(current.url);else updateChrome();});
+        stage=new FrameLayout(this);root.addView(stage,new LinearLayout.LayoutParams(-1,0,1));stage.setFocusableInTouchMode(true);stage.requestFocus();
     }
     private void newTab(String url) {
         if(tabs.size()>=MAX_TABS){toast("Close a tab before opening more (30 tab limit).");return;}
         Tab t=new Tab();t.url=url;tabs.add(t);switchTab(t);
     }
     private void switchTab(Tab t) {
-        Tab previous=current==null?null:(current.web!=null?current:current.inspected);if(previous!=null&&previous.web!=null&&t!=previous&&t.inspected!=previous)previous.web.onPause();
+        Tab previous=current==null?null:(current.web!=null?current:current.inspected);if(previous!=null&&previous.web!=null&&t!=previous&&t.inspected!=previous){if(!keepPlaying(previous))previous.web.onPause();}
         stage.removeAllViews();current=t;
         if(t.inspector!=null){if(t.inspector.getParent()!=null)((ViewGroup)t.inspector.getParent()).removeView(t.inspector);stage.addView(t.inspector,new FrameLayout.LayoutParams(-1,-1));if(t.inspected!=null&&t.inspected.web!=null)t.inspected.web.onResume();}else if(t.url.isEmpty())showHome();else{ensureWeb(t);stage.addView(t.web,new FrameLayout.LayoutParams(-1,-1));t.web.onResume();}
         trimTabs();updateChrome();saveSession();
     }
     private void trimTabs() {
         int live=0;for(Tab t:tabs)if(t.web!=null)live++;
-        for(Tab t:tabs)if(live>MAX_LIVE_TABS&&t!=current&&(current==null||current.inspected!=t)&&t.web!=null){if(t.network!=null)t.network.close();t.web.destroy();t.web=null;live--;}
+        for(Tab t:tabs)if(live>MAX_LIVE_TABS&&t!=current&&!t.mediaPlaying&&(current==null||current.inspected!=t)&&t.web!=null){if(t.network!=null)t.network.close();t.web.destroy();t.web=null;live--;}
     }
     private void closeTab(Tab t) {
-        boolean selected=t==current;if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.dispose();if(t.web!=null){if(t.web.getParent()!=null)((android.view.ViewGroup)t.web.getParent()).removeView(t.web);t.web.destroy();}
+        boolean selected=t==current;if(t==playbackTab)stopPlayback();if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.dispose();if(t.web!=null){if(t.web.getParent()!=null)((android.view.ViewGroup)t.web.getParent()).removeView(t.web);t.web.destroy();}
         tabs.remove(t);if(tabs.isEmpty()){current=null;newTab("");}else if(selected)switchTab(tabs.get(tabs.size()-1));updateChrome();saveSession();
     }
     private void navigate(String input) {
@@ -160,40 +158,31 @@ public class MainActivity extends Activity {
         stage.addView(current.web,new FrameLayout.LayoutParams(-1,-1));current.web.onResume();if(!created&&!current.attaching)current.web.loadUrl(url);updateChrome();trimTabs();
     }
     private void updateChrome() {
-        if(current==null||address==null)return;addressRow.setVisibility(current.inspector==null?View.VISIBLE:View.GONE);if(current.inspector!=null)progress.setVisibility(View.INVISIBLE);
+        if(current==null||address==null)return;
+        FrameLayout destination=current.url.isEmpty()&&homeAddressSlot!=null?homeAddressSlot:addressSlot;
+        if(current.inspector==null&&addressRow.getParent()!=destination){if(addressRow.getParent()!=null)((ViewGroup)addressRow.getParent()).removeView(addressRow);destination.removeAllViews();destination.addView(addressRow,new FrameLayout.LayoutParams(-1,-1));}
+        addressRow.setVisibility(current.inspector==null?View.VISIBLE:View.GONE);
+        if(current.url.isEmpty()&&addressSlot.getChildCount()==0){TextView brand=text("space",23,ink,true);brand.setGravity(Gravity.CENTER_VERTICAL);addressSlot.addView(brand,new FrameLayout.LayoutParams(-1,-1));}
         if(!address.hasFocus())address.setText(current.url.isEmpty()?"":current.url);
         tabCount.setText(String.valueOf(tabs.size()));address.setHint(privateMode()?"Private search or address":"Search or enter address");
     }
     private void showHome() {
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);
-        LinearLayout content=column();content.setPadding(dp(24),dp(14),dp(24),dp(20));scroll.addView(content,new ScrollView.LayoutParams(-1,-2));
-        LinearLayout heading=row();TextView brand=text("space",25,ink,true);brand.setLetterSpacing(-.04f);heading.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
-        TextView badge=text(privateMode()?"●  PRIVATE":"✦  YOUR SPACE",10,accent,true);badge.setLetterSpacing(.12f);badge.setPadding(dp(12),dp(9),dp(12),dp(9));badge.setBackground(outlined(panel,20));heading.addView(badge);content.addView(heading);
-        gap(content,18);
-        FrameLayout hero=new FrameLayout(this);GradientDrawable heroBackground=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{dark?0xFF201B35:0xFFEDE7FA,bg});heroBackground.setCornerRadius(dp(22));hero.setBackground(heroBackground);hero.setClipToOutline(true);
-        hero.addView(new OrbitView(this),new FrameLayout.LayoutParams(-1,dp(116),Gravity.TOP));
-        LinearLayout heroText=column();heroText.setPadding(dp(12),dp(108),dp(12),dp(16));
-        TextView eyebrow=text(privateMode()?"LEAVE LESS BEHIND":"A LITTLE LESS NOISE.",10,accent,true);eyebrow.setLetterSpacing(.2f);heroText.addView(eyebrow);gap(heroText,9);
-        TextView title=text(privateMode()?"Just you.\nAnd the web.":"More space.\nMore possibility.",34,ink,true);title.setLetterSpacing(-.045f);title.setLineSpacing(dp(0),1.03f);heroText.addView(title);gap(heroText,10);
-        heroText.addView(text(privateMode()?"Separate session. No saved history.":"A lighter browser for a curious mind.",14,muted,false));hero.addView(heroText,new FrameLayout.LayoutParams(-1,-2));content.addView(hero,new LinearLayout.LayoutParams(-1,-2));
-        gap(content,18);LinearLayout shortcutHeading=row();TextView quick=text("QUICK LAUNCH",10,muted,true);quick.setLetterSpacing(.15f);shortcutHeading.addView(quick,new LinearLayout.LayoutParams(0,-2,1));
-        TextView edit=text("Bookmarks  ›",12,accent,true);edit.setPadding(dp(8),dp(12),0,dp(12));edit.setOnClickListener(v->showEntries("bookmarks"));shortcutHeading.addView(edit);content.addView(shortcutHeading);
-        LinearLayout quickRow=row();String[][] shortcuts={{"G","Google","https://www.google.com","#A9BDFB"},{"▶","YouTube","https://m.youtube.com","#F59BA6"},{"W","Wikipedia","https://en.wikipedia.org","#D7D0EE"},{"⌘","GitHub","https://github.com","#A4D8C4"}};
-        for(String[] s:shortcuts){LinearLayout item=column();item.setGravity(Gravity.CENTER);TextView tile=text(s[0],24,Color.parseColor(s[3]),true);tile.setGravity(Gravity.CENTER);tile.setBackground(outlined(panel,18));item.addView(tile,new LinearLayout.LayoutParams(dp(56),dp(56)));gap(item,8);item.addView(text(s[1],11,muted,false));item.setContentDescription("Open "+s[1]);item.setFocusable(true);item.setOnClickListener(v->navigate(s[2]));quickRow.addView(item,new LinearLayout.LayoutParams(0,dp(92),1));}content.addView(quickRow);
-        gap(content,22);LinearLayout stats=row();stats.setPadding(dp(18),dp(17),dp(18),dp(17));stats.setBackground(outlined(panel,20));
-        int blocked=totalBlocked.get();
-        LinearLayout left=column();left.addView(text(String.format(java.util.Locale.US,"%,d",blocked),26,accent,true));gap(left,4);left.addView(text("Requests blocked",11,muted,false));stats.addView(left,new LinearLayout.LayoutParams(0,-2,1));
-        View divider=new View(this);divider.setBackgroundColor(line);stats.addView(divider,new LinearLayout.LayoutParams(dp(1),dp(40)));
-        LinearLayout right=column();right.setPadding(dp(20),0,0,0);right.addView(text(shieldsOn?"Active":"Paused",22,ink,true));gap(right,6);right.addView(text("Space shields",11,muted,false));stats.addView(right,new LinearLayout.LayoutParams(0,-2,1));stats.setOnClickListener(v->showShields());content.addView(stats);
-        gap(content,20);TextView footer=text(privateMode()?"Close private browsing from the menu to end this session.":"Less tracking. More exploring.",12,muted,false);footer.setGravity(Gravity.CENTER);content.addView(footer);
-        home=scroll;stage.addView(scroll,new FrameLayout.LayoutParams(-1,-1));progress.setVisibility(View.INVISIBLE);
+        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
+        LinearLayout content=column();content.setGravity(Gravity.CENTER);content.setPadding(dp(24),dp(20),dp(24),dp(70));scroll.addView(content,new ScrollView.LayoutParams(-1,-1));
+        content.addView(new OrbitView(this),new LinearLayout.LayoutParams(-1,dp(170)));
+        TextView brand=text(privateMode()?"Space · Private":"Space",36,ink,true);brand.setLetterSpacing(-.04f);content.addView(brand);gap(content,26);
+        homeAddressSlot=new FrameLayout(this);content.addView(homeAddressSlot,new LinearLayout.LayoutParams(-1,dp(60)));gap(content,28);
+        LinearLayout shortcuts=row();String[][] links={{"G","Google","https://www.google.com"},{"▶","YouTube","https://m.youtube.com"},{"W","Wikipedia","https://en.wikipedia.org"},{"⌘","GitHub","https://github.com"}};
+        for(String[] link:links){LinearLayout item=column();item.setGravity(Gravity.CENTER);TextView tile=text(link[0],23,accent,true);tile.setGravity(Gravity.CENTER);tile.setBackground(outlined(panel,20));item.addView(tile,new LinearLayout.LayoutParams(dp(54),dp(54)));gap(item,8);item.addView(text(link[1],11,muted,false));item.setContentDescription("Open "+link[1]);item.setOnClickListener(v->navigate(link[2]));shortcuts.addView(item,new LinearLayout.LayoutParams(0,-2,1));}content.addView(shortcuts,new LinearLayout.LayoutParams(-1,-2));gap(content,26);
+        TextView aiLaunch=text("✦  Ask Space AI",14,accent,true);aiLaunch.setPadding(dp(20),dp(14),dp(20),dp(14));aiLaunch.setBackground(outlined(panel,24));aiLaunch.setOnClickListener(v->showAi(Collections.emptyList(),AiContext.SUMMARY));content.addView(aiLaunch);
+        home=scroll;stage.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
     }
     private int sessionBlocked(){int total=0;for(Tab t:tabs)total+=t.blocked.get();return total;}
 
     @SuppressWarnings("SetJavaScriptEnabled")
     private void ensureWeb(Tab t) {
         if(t.web!=null)return;
-        WebView w=new WebView(this);t.web=w;w.setBackgroundColor(Color.WHITE);
+        WebView w=new PlaybackWebView(this);t.web=w;w.setBackgroundColor(Color.WHITE);
         WebSettings s=w.getSettings();s.setJavaScriptEnabled(store.prefs.getBoolean("javascript",true));s.setDomStorageEnabled(true);
         s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setSafeBrowsingEnabled(true);
         s.setSupportZoom(true);s.setBuiltInZoomControls(true);s.setDisplayZoomControls(false);s.setUseWideViewPort(true);s.setLoadWithOverviewMode(true);
@@ -216,21 +205,21 @@ public class MainActivity extends Activity {
                 return null;
             }
             @Override public void onPageStarted(WebView view,String url,android.graphics.Bitmap favicon){
-                if(!BrowserLogic.webUrl(url))return;if(captureEnabled&&t.network==null)attachCapture(t,url,false);t.url=url;t.site=BrowserLogic.host(url);t.reader=false;if(t==current){progress.setVisibility(View.VISIBLE);updateChrome();}saveSession();
+                if(!BrowserLogic.webUrl(url))return;if(captureEnabled&&t.network==null)attachCapture(t,url,false);t.url=url;t.site=BrowserLogic.host(url);t.reader=false;if(t==current){updateChrome();}saveSession();
             }
             @Override public void onPageFinished(WebView view,String url){
                 if(t.clearCaptureHistory&&BrowserLogic.webUrl(url)){view.clearHistory();t.clearCaptureHistory=false;}
-                if(t==current){progress.setVisibility(View.INVISIBLE);updateChrome();}
+                if(t==current){updateChrome();}
                 if(!privateMode()&&BrowserLogic.webUrl(url)&&!clearing)store.add("history",t.title,url,500);saveSession();
             }
             @Override public void onReceivedSslError(WebView view,SslErrorHandler ssl,SslError error){ssl.cancel();if(t==current)toast("Connection blocked: this site's certificate is not valid.");}
             @Override public void onReceivedError(WebView view,WebResourceRequest request,WebResourceError error){if(request.isForMainFrame()&&t==current)toast("Page could not load. Check the address or your connection.");}
             @Override public boolean onRenderProcessGone(WebView view,RenderProcessGoneDetail detail){
-                if(view.getParent()!=null)((ViewGroup)view.getParent()).removeView(view);if(t.network!=null)t.network.close();view.destroy();t.web=null;if(t==current){toast("This tab stopped. Reloading it now.");switchTab(t);}return true;
+                if(t==playbackTab)stopPlayback();if(view.getParent()!=null)((ViewGroup)view.getParent()).removeView(view);if(t.network!=null)t.network.close();view.destroy();t.web=null;if(t==current){toast("This tab stopped. Reloading it now.");switchTab(t);}return true;
             }
         });
         w.setWebChromeClient(new WebChromeClient(){
-            @Override public void onProgressChanged(WebView view,int value){if(t==current){progress.setProgress(value);progress.setVisibility(value==100?View.INVISIBLE:View.VISIBLE);}}
+            
             @Override public void onReceivedTitle(WebView view,String title){t.title=title==null?"Page":title;saveSession();}
             @Override public boolean onCreateWindow(WebView view,boolean dialog,boolean gesture,Message result){
                 if(!gesture||tabs.size()>=MAX_TABS)return false;
@@ -270,9 +259,9 @@ public class MainActivity extends Activity {
     private void goBack(){if(current!=null&&current.inspector!=null){Tab inspected=current.inspected;closeTab(current);if(inspected!=null&&tabs.contains(inspected))switchTab(inspected);return;}if(fullscreen!=null){exitFullscreen();return;}if(current.web!=null&&current.web.canGoBack()){current.web.goBack();return;}if(!current.url.isEmpty()){current.url="";if(current.web!=null){current.web.stopLoading();if(current.network!=null)current.network.close();current.web.destroy();current.web=null;}switchTab(current);return;}if(privateMode())finishAndRemoveTask();else super.onBackPressed();}
     @Override public void onBackPressed(){goBack();}
     private void exitFullscreen(){if(fullscreen==null)return;((ViewGroup)fullscreen.getParent()).removeView(fullscreen);fullscreen=null;root.setVisibility(View.VISIBLE);if(fullscreenCallback!=null)fullscreenCallback.onCustomViewHidden();fullscreenCallback=null;getWindow().getDecorView().setSystemUiVisibility(dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);}
-    @Override protected void onPause(){super.onPause();saveSession();if(!privateMode())store.prefs.edit().putInt("blocked",totalBlocked.get()).apply();Tab active=current==null?null:(current.web!=null?current:current.inspected);if(active!=null&&active.web!=null&&fullscreen==null)active.web.onPause();}
-    @Override protected void onResume(){super.onResume();Tab active=current==null?null:(current.web!=null?current:current.inspected);if(active!=null&&active.web!=null)active.web.onResume();}
-    @Override protected void onDestroy(){if(uploadCallback!=null)uploadCallback.onReceiveValue(null);if(pendingPermission!=null)pendingPermission.deny();handler.removeCallbacksAndMessages(null);for(Tab t:tabs){if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.dispose();if(t.web!=null)t.web.destroy();}for(NetworkRecorder r:importedCaptures)r.close();CaptureStorage.clearSession();super.onDestroy();}
+    @Override protected void onPause(){super.onPause();saveSession();if(!privateMode())store.prefs.edit().putInt("blocked",totalBlocked.get()).apply();Tab active=current==null?null:(current.web!=null?current:current.inspected);foreground=false;if(active!=null&&active.web!=null&&fullscreen==null){if(!keepPlaying(active))active.web.onPause();}}
+    @Override protected void onResume(){super.onResume();foreground=true;Tab active=current==null?null:(current.web!=null?current:current.inspected);if(active!=null&&active.web!=null)active.web.onResume();}
+    @Override protected void onDestroy(){stopPlayback();PlaybackService.controller=null;if(uploadCallback!=null)uploadCallback.onReceiveValue(null);if(pendingPermission!=null)pendingPermission.deny();handler.removeCallbacksAndMessages(null);for(Tab t:tabs){if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.dispose();if(t.web!=null)t.web.destroy();}for(NetworkRecorder r:importedCaptures)r.close();CaptureStorage.clearSession();super.onDestroy();}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_SHORT).show();}
     private Dialog sheet(String title,String subtitle,java.util.function.Consumer<LinearLayout> body){
         Dialog d=new Dialog(this);LinearLayout container=column();container.setPadding(dp(22),dp(14),dp(22),dp(24));container.setBackground(surface(panel,26));
@@ -308,6 +297,7 @@ public class MainActivity extends Activity {
             if(!privateMode())action(list,"history","History",null,()->{d[0].dismiss();showEntries("history");});
             action(list,"download","Downloads",null,()->{d[0].dismiss();try{startActivity(new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS));}catch(Exception e){toast("Open your device's Files app to see downloads.");}});
             if(current.web!=null&&!current.url.isEmpty()){
+                action(list,"next","Forward",null,()->{d[0].dismiss();if(current.web.canGoForward())current.web.goForward();});
                 action(list,"star","Bookmark this page",null,()->{d[0].dismiss();if(privateMode()){toast("Bookmarks are not saved in private browsing.");return;}store.add("bookmarks",current.title,current.url,300);toast("Bookmark saved");});
                 action(list,"search","Find in page",null,()->{d[0].dismiss();showFind();});
                 action(list,"reader",current.reader?"Exit reading view":"Reading view","Simplify article pages",()->{d[0].dismiss();readerMode();});
@@ -315,7 +305,7 @@ public class MainActivity extends Activity {
                 action(list,"share","Share page",null,()->{d[0].dismiss();startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,current.url),"Share page"));});
             }
             action(list,"code","Developer tools","Network · headers · bodies · decode",()->{d[0].dismiss();showDevTools();});
-            action(list,"code","Space AI","Ask a question or analyze selected network traffic",()->{d[0].dismiss();new SpaceAi(this).show(Collections.emptyList(),false);});
+            action(list,"code","Space AI","Ask a question or analyze selected network traffic",()->{d[0].dismiss();showAi(Collections.emptyList(),AiContext.SUMMARY);});
             action(list,"settings","Settings","Appearance, search and privacy",()->{d[0].dismiss();showSettings();});
         });
     }
@@ -343,14 +333,16 @@ public class MainActivity extends Activity {
             });
             toggle(list,"JavaScript","Some websites need scripts to work",store.prefs.getBoolean("javascript",true),on->{if(!privateMode())store.prefs.edit().putBoolean("javascript",on).apply();for(Tab t:tabs)if(t.web!=null)t.web.getSettings().setJavaScriptEnabled(on);if(current.web!=null)current.web.reload();});
             toggle(list,"Network capture","Record traffic for developer tools; allows WebView debugging",captureEnabled,this::setCapture);
+            action(list,"code","AI settings","Model: "+SpaceAi.model(this),()->SpaceAi.settings(this));
+            toggle(list,"Background playback","Keep playing media when you leave Space",store.prefs.getBoolean("background_playback",true),on->{store.prefs.edit().putBoolean("background_playback",on).apply();if(!on)stopPlayback();});
             action(list,"globe","Set as default browser","Open links in Space",()->{RoleManagerCompat.requestBrowser(this);});
             if(!privateMode())action(list,"shield","Clear browsing data","History, cookies, cache, open tabs and site storage",()->new SpaceDialogBuilder(this).setTitle("Clear browsing data?").setMessage("This closes regular tabs and signs you out of websites. Bookmarks and downloaded files are kept. Close any private session separately.").setNegativeButton("Cancel",null).setPositiveButton("Clear data",(a,b)->{d[0].dismiss();clearBrowsingData();}).show());
-            action(list,"code","About Space","Version 1.1.0 · native Android",()->new SpaceDialogBuilder(this).setTitle("Space Browser 1.1.0").setMessage("Built with native Android views and your device's Android System WebView. No analytics SDKs, account or cloud sync.\n\nAndroid 10 or newer. Keep Android System WebView updated.\n\nFilters: StevenBlack unified hosts with bundled source attribution.\n\nNetwork tools capture real WebView events and available bodies. Body limits and unavailable data are labeled. AI sends messages to your configured gateway only when you press Send.").setPositiveButton("Got it",null).show());
+            action(list,"code","About Space","Version 1.2.0 · native Android",()->new SpaceDialogBuilder(this).setTitle("Space Browser 1.2.0").setMessage("Built with native Android views and your device's Android System WebView. No analytics SDKs, account or cloud sync.\n\nAndroid 10 or newer. Keep Android System WebView updated.\n\nFilters: StevenBlack unified hosts with bundled source attribution.\n\nNetwork tools capture real WebView events and available bodies. Body limits and unavailable data are labeled. AI sends messages to your configured gateway only when you press Send.").setPositiveButton("Got it",null).show());
         });
     }
     private void destroyTabs(){stage.removeAllViews();for(Tab t:tabs){if(t.inspector!=null)t.inspector.dispose();if(t.network!=null)t.network.dispose();if(t.web!=null){t.web.stopLoading();t.web.destroy();}}tabs.clear();current=null;}
     private void clearBrowsingData(){
-        clearing=true;destroyTabs();importedCaptures.clear();CaptureStorage.clearSession();WebView cleaner=new WebView(this);cleaner.clearCache(true);cleaner.clearHistory();cleaner.clearFormData();cleaner.destroy();WebStorage.getInstance().deleteAllData();WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();
+        clearing=true;stopPlayback();destroyTabs();importedCaptures.clear();CaptureStorage.clearSession();WebView cleaner=new WebView(this);cleaner.clearCache(true);cleaner.clearHistory();cleaner.clearFormData();cleaner.destroy();WebStorage.getInstance().deleteAllData();WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();
         CookieManager.getInstance().removeAllCookies(done->{CookieManager.getInstance().flush();store.prefs.edit().remove("history").remove("session").apply();clearing=false;newTab("");toast("Browsing data cleared");});
     }
     private void showFind(){
@@ -375,9 +367,11 @@ public class MainActivity extends Activity {
     }
     private void showInspector(NetworkRecorder recorder,Tab target){
         if(store.prefs.getBoolean("dev_popup",false)){
-            Dialog dialog=new Dialog(this);NetworkInspector inspector=new NetworkInspector(this,recorder,this::networkSources,dialog::dismiss);dialog.setContentView(inspector);dialog.setOnDismissListener(d->inspector.dispose());dialog.show();Window w=dialog.getWindow();if(w!=null){w.setLayout(-1,(int)(getResources().getDisplayMetrics().heightPixels*.88));w.setGravity(Gravity.BOTTOM);w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);if(privateMode())w.addFlags(WindowManager.LayoutParams.FLAG_SECURE);}
+            Dialog dialog=new Dialog(this);NetworkInspector inspector=new NetworkInspector(this,recorder,this::networkSources,dialog::dismiss);dialog.setCanceledOnTouchOutside(false);dialog.setContentView(inspector);dialog.setOnDismissListener(d->inspector.dispose());dialog.show();Window w=dialog.getWindow();if(w!=null){w.setLayout(-1,(int)(getResources().getDisplayMetrics().heightPixels*.88));w.setGravity(Gravity.BOTTOM);w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);if(privateMode())w.addFlags(WindowManager.LayoutParams.FLAG_SECURE);}
         }else{if(tabs.size()>=MAX_TABS){toast("Close a tab first");return;}Tab tools=new Tab();tools.title="Developer tools";tools.url="space://devtools";tools.inspected=target;tools.inspector=new NetworkInspector(this,recorder,this::networkSources,()->{closeTab(tools);if(target!=null&&tabs.contains(target))switchTab(target);});tabs.add(tools);switchTab(tools);}
     }
+    AiConversation aiConversation(){if(aiChat==null)aiChat=new AiConversation(this);return aiChat;}
+    void showAi(List<NetworkRecord> records,int mode){if(ai==null)ai=new SpaceAi(this);ai.show(records,mode);}
     android.content.SharedPreferences devPrefs(){return store.prefs;}
     void devToast(String message){toast(message);}
     void copyText(String text){copy(text);}
@@ -392,6 +386,43 @@ public class MainActivity extends Activity {
         if(!BrowserLogic.webUrl(r.url)){toast("Replay requires an HTTP or HTTPS URL");return;}
         new Thread(()->{java.net.HttpURLConnection c=null;try{r.type="Replay";r.started=android.os.SystemClock.elapsedRealtime()/1000d;c=(java.net.HttpURLConnection)new java.net.URL(r.url).openConnection();c.setConnectTimeout(15000);c.setReadTimeout(30000);c.setInstanceFollowRedirects(false);c.setRequestMethod(r.method);for(Map.Entry<String,String> h:r.requestHeaders.entrySet())if(!h.getKey().startsWith(":")&&!h.getKey().equalsIgnoreCase("content-length")&&!h.getKey().equalsIgnoreCase("host")&&!h.getKey().equalsIgnoreCase("connection"))c.setRequestProperty(h.getKey(),h.getValue());if(r.requestBody.length>0){c.setDoOutput(true);c.setFixedLengthStreamingMode(r.requestBody.length);try(java.io.OutputStream out=c.getOutputStream()){out.write(r.requestBody);}}r.status=c.getResponseCode();r.statusText=c.getResponseMessage();r.finalUrl=c.getURL().toString();for(Map.Entry<String,List<String>> h:c.getHeaderFields().entrySet())if(h.getKey()!=null)r.responseHeaders.put(h.getKey(),String.join("\n",h.getValue()));r.mime=c.getContentType()==null?"":c.getContentType();try(java.io.InputStream in=r.status>=400?c.getErrorStream():c.getInputStream()){if(in!=null)r.responseBody=NetworkFormats.read(in,NetworkRecorder.BODY_LIMIT);}r.transferBytes=r.responseBody.length;r.responseBodyNote="Explicit replay response; redirects were not followed";}catch(Exception e){r.error=e.getMessage();r.responseBodyNote="Replay failed: "+e.getMessage();}finally{if(c!=null)c.disconnect();r.complete=true;r.finished=android.os.SystemClock.elapsedRealtime()/1000d;destination.addImported(r);handler.post(()->toast("Replay captured: "+r.status));}},"Space-replay").start();
     }
+
+    private Intent playbackIntent(){return new Intent(this,privateMode()?PrivatePlaybackService.class:PlaybackService.class);}
+    private boolean keepPlaying(Tab t){return t!=null&&t.mediaPlaying&&store.prefs.getBoolean("background_playback",true);}
+    // Read media state only; no JavaScript bridge or request interception is installed.
+    private static final String MEDIA_NODES="function nodes(d){var a=Array.from(d.querySelectorAll('audio,video'));for(var f of d.querySelectorAll('iframe,frame')){try{if(f.contentDocument)a=a.concat(nodes(f.contentDocument));}catch(e){}}return a;}";
+    private final Runnable mediaPoll=new Runnable(){public void run(){
+        if(isDestroyed())return;
+        if(store!=null&&store.prefs.getBoolean("background_playback",true))for(Tab t:new ArrayList<>(tabs)){
+            if(t.web==null||t.inspector!=null||(!foreground&&!t.mediaPlaying))continue;
+            WebView expected=t.web;
+            expected.evaluateJavascript("(function(){"+MEDIA_NODES+"return nodes(document).some(function(m){return !m.paused&&!m.ended&&m.readyState>=2;});})()",result->{
+                if(isDestroyed()||t.web!=expected||!tabs.contains(t)||!store.prefs.getBoolean("background_playback",true))return;
+                boolean playing="true".equals(result);
+                if(playing&&!t.mediaPlaying){
+                    if(!foreground&&!PlaybackService.running)return;
+                    t.mediaPlaying=true;((PlaybackWebView)expected).keepPlaying(true);expected.onResume();playbackTab=t;
+                    try{startForegroundService(playbackIntent().putExtra("title",t.title).putExtra("playing",true));}catch(RuntimeException e){t.mediaPlaying=false;((PlaybackWebView)expected).keepPlaying(false);}
+                }else if(!playing&&t.mediaPlaying){
+                    t.mediaPlaying=false;((PlaybackWebView)expected).keepPlaying(false);
+                    Tab other=null;for(Tab candidate:tabs)if(candidate.mediaPlaying)other=candidate;
+                    if(other!=null)playbackTab=other;
+                    else {stopService(playbackIntent());playbackTab=null;}
+                    if(!foreground)expected.onPause();
+                }
+            });
+        }
+        handler.postDelayed(this,750);
+    }};
+    private void mediaCommand(boolean play){
+        Tab tab=playbackTab;if(tab==null||tab.web==null)return;
+        tab.web.evaluateJavascript("(function(){"+MEDIA_NODES+"nodes(document).forEach(function(m){"+(play?"var p=m.play();if(p)p.catch(function(){});":"m.pause();")+"});})()",null);
+    }
+    private void stopPlayback(){
+        for(Tab t:tabs)if(t.mediaPlaying){t.mediaPlaying=false;if(t.web!=null){t.web.evaluateJavascript("(function(){"+MEDIA_NODES+"nodes(document).forEach(function(m){m.pause();});})()",null);((PlaybackWebView)t.web).keepPlaying(false);}}
+        playbackTab=null;stopService(playbackIntent());
+    }
+
     private void copy(String value){((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Space",value));toast("Copied");}
     private void showLinkActions(String url){final Dialog[] d=new Dialog[1];d[0]=sheet("Link options",url,list->{action(list,"plus","Open in new tab",null,()->{d[0].dismiss();newTab(url);});action(list,"share","Copy link",null,()->{d[0].dismiss();copy(url);});action(list,"download","Download link",null,()->{d[0].dismiss();confirmDownload(url,current.web.getSettings().getUserAgentString(),null,null);});});}
     private void openExternal(String value){

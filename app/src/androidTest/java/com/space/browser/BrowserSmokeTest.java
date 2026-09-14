@@ -52,6 +52,7 @@ public final class BrowserSmokeTest extends InstrumentationTestCase {
         assertNotNull(web);final WebView target=web;
         AtomicReference<String> title=new AtomicReference<>();getInstrumentation().runOnMainSync(()->title.set(target.getTitle()));assertEquals("Space test page",title.get());
         screenshot("02-browsing.png");
+        getInstrumentation().runOnMainSync(()->{int[] location=new int[2];input.getLocationOnScreen(location);assertTrue("Address bar moves to top while browsing",location[1]<activity.getResources().getDisplayMetrics().heightPixels/4);});
         java.lang.reflect.Field activeTab=MainActivity.class.getDeclaredField("current");activeTab.setAccessible(true);
         MainActivity.Tab browserTab=(MainActivity.Tab)activeTab.get(activity);
         NetworkRecorder recorder=browserTab.network;assertNotNull("Capture is enabled by default",recorder);
@@ -87,8 +88,28 @@ public final class BrowserSmokeTest extends InstrumentationTestCase {
         getInstrumentation().runOnMainSync(()->findText(activity.getWindow().getDecorView(),"Request").performClick());screenshot("08-network-request.png");
         getInstrumentation().runOnMainSync(()->{findText(activity.getWindow().getDecorView(),"Response").performClick();findText(activity.getWindow().getDecorView(),"Text").performClick();});screenshot("09-network-response.png");
         getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+        
+        // Context includes POST and actual response; masking remains an explicit opt-out.
         final NetworkRecord aiRecord=post;
-        getInstrumentation().runOnMainSync(()->new SpaceAi((MainActivity)activity).show(java.util.Collections.singletonList(aiRecord),true));screenshot("11-space-ai.png");getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+        String fullContext=AiContext.build(java.util.Collections.singletonList(aiRecord),AiContext.FULL,true);
+        assertTrue(fullContext.contains("SPACE_POST_OK"));assertTrue(fullContext.contains("SPACE_RESPONSE_OK"));assertTrue(fullContext.contains("User-Agent"));
+        String bodies=AiContext.build(java.util.Collections.singletonList(aiRecord),AiContext.BODIES,true);assertTrue(bodies.contains("SPACE_POST_OK"));assertTrue(bodies.contains("SPACE_RESPONSE_OK"));
+        getInstrumentation().runOnMainSync(()->{
+            MainActivity host=(MainActivity)activity;AiConversation chat=host.aiConversation();chat.clear();
+            chat.add("user","Remember the number 42","");chat.add("assistant","**Remembered.**","");
+            chat.draft("Continue this conversation");AiConversation restored=new AiConversation(host);assertEquals(2,restored.snapshot().length());assertEquals("Continue this conversation",restored.draft());
+            try{org.json.JSONArray messages=restored.messages("What number?","",true);assertEquals(4,messages.length());assertTrue(messages.getJSONObject(1).getString("content").contains("42"));}catch(Exception e){throw new RuntimeException(e);}
+            host.devPrefs().edit().putString("ai_model","custom/model-name").commit();assertEquals("custom/model-name",SpaceAi.model(host));host.devPrefs().edit().putString("ai_model","auto").commit();
+            android.text.SpannableStringBuilder formatted=MarkdownView.format("**Bold** and "+(char)96+"code"+(char)96);assertEquals("Bold and code",formatted.toString());assertTrue(formatted.getSpans(0,formatted.length(),android.text.style.StyleSpan.class).length>0);
+            MarkdownView markdown=new MarkdownView(host,0xff000000,0xff7050cd,0xffeeeeee);String fence=""+(char)96+(char)96+(char)96;markdown.setMarkdown(fence+"java\nint value = 42;\n"+fence);View copy=find(markdown,"Copy code block");assertNotNull(copy);copy.performClick();assertEquals("int value = 42;\n",((android.content.ClipboardManager)host.getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getPrimaryClip().getItemAt(0).getText().toString());
+        });
+
+        final SpaceAi aiWindow=new SpaceAi((MainActivity)activity);
+        getInstrumentation().runOnMainSync(()->aiWindow.show(java.util.Collections.singletonList(aiRecord),true));screenshot("11-space-ai.png");
+        java.lang.reflect.Field dialogField=SpaceAi.class.getDeclaredField("dialog");dialogField.setAccessible(true);android.app.Dialog dialog=(android.app.Dialog)dialogField.get(aiWindow);
+        getInstrumentation().runOnMainSync(()->{EditText composer=(EditText)find(dialog.getWindow().getDecorView(),"AI message input");assertEquals("Continue this conversation",composer.getText().toString());composer.requestFocus();((android.view.inputmethod.InputMethodManager)activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)).showSoftInput(composer,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);});
+        Thread.sleep(1000);screenshot("13-ai-keyboard.png");
+        getInstrumentation().runOnMainSync(()->{View composer=find(dialog.getWindow().getDecorView(),"AI message input");android.graphics.Rect frame=new android.graphics.Rect();dialog.getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);int[] location=new int[2];composer.getLocationOnScreen(location);assertTrue("Composer stays above keyboard",location[1]+composer.getHeight()<=frame.bottom+2);assertTrue("Composer stays onscreen",location[1]>=frame.top);dialog.dismiss();((MainActivity)activity).aiConversation().clear();});
         getInstrumentation().getTargetContext().getSharedPreferences("space",0).edit().putBoolean("dev_popup",true).commit();
         getInstrumentation().runOnMainSync(()->{try{java.lang.reflect.Method m=MainActivity.class.getDeclaredMethod("showDevTools");m.setAccessible(true);m.invoke(activity);}catch(Exception e){throw new RuntimeException(e);}});Thread.sleep(300);screenshot("12-network-popup.png");getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
         getInstrumentation().getTargetContext().getSharedPreferences("space",0).edit().putBoolean("dev_popup",false).commit();
@@ -97,6 +118,26 @@ public final class BrowserSmokeTest extends InstrumentationTestCase {
             assertFalse(android.webkit.CookieManager.getInstance().acceptThirdPartyCookies(target));
             assertEquals(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW,target.getSettings().getMixedContentMode());
         });
+
+        // Real HTML media must advance after HOME, with a foreground media service.
+        byte[] wave=new byte[44+8000*2*12];java.nio.ByteBuffer wav=java.nio.ByteBuffer.wrap(wave).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        wav.put("RIFF".getBytes()).putInt(wave.length-8).put("WAVEfmt ".getBytes()).putInt(16).putShort((short)1).putShort((short)1).putInt(8000).putInt(16000).putShort((short)2).putShort((short)16).put("data".getBytes()).putInt(wave.length-44);
+        for(int i=0;i<8000*12;i++)wav.putShort((short)(Math.sin(i*2*Math.PI*220/8000)*1000));
+        String encoded=android.util.Base64.encodeToString(wave,android.util.Base64.NO_WRAP);
+        getInstrumentation().runOnMainSync(()->{target.getSettings().setMediaPlaybackRequiresUserGesture(false);target.evaluateJavascript("window.spaceAudio=new Audio('data:audio/wav;base64,"+encoded+"');document.body.appendChild(spaceAudio);spaceAudio.loop=true;spaceAudio.play();",null);});
+        for(int i=0;i<50&&!PlaybackService.running;i++)Thread.sleep(200);
+        assertTrue("Playing media starts a foreground service",PlaybackService.running);
+        double before=Double.parseDouble(js(target,"spaceAudio.currentTime"));
+        getInstrumentation().getUiAutomation().performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME);
+        Thread.sleep(1800);
+        double after=Double.parseDouble(js(target,"spaceAudio.currentTime"));
+        assertEquals("Background player stays unpaused","false",js(target,"spaceAudio.paused"));
+        assertTrue("Background audio advances after HOME: "+before+" -> "+after,after>before+0.5);
+        assertTrue(PlaybackService.running);
+        getInstrumentation().getTargetContext().startActivity(new Intent(getInstrumentation().getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
+        Thread.sleep(700);getInstrumentation().runOnMainSync(()->{target.evaluateJavascript("spaceAudio.pause();",null);target.getSettings().setMediaPlaybackRequiresUserGesture(true);});
+        for(int i=0;i<30&&PlaybackService.running;i++)Thread.sleep(100);
+        assertFalse("Paused media releases the foreground service",PlaybackService.running);
         // Verify that the private process cannot see the regular session cookie.
         final java.util.concurrent.CountDownLatch cookieSet=new java.util.concurrent.CountDownLatch(1);
         getInstrumentation().runOnMainSync(()->target.evaluateJavascript("document.cookie='space_session=normal; path=/'; document.cookie",value->cookieSet.countDown()));
@@ -123,6 +164,7 @@ public final class BrowserSmokeTest extends InstrumentationTestCase {
         }catch(Exception e){throw new RuntimeException(e);}});
         getInstrumentation().waitForIdleSync();screenshot("06-light.png");
     }
+    private String js(WebView web,String script) throws Exception {AtomicReference<String> result=new AtomicReference<>();java.util.concurrent.CountDownLatch latch=new java.util.concurrent.CountDownLatch(1);getInstrumentation().runOnMainSync(()->web.evaluateJavascript(script,value->{result.set(value);latch.countDown();}));assertTrue("WebView callback completes",latch.await(6,java.util.concurrent.TimeUnit.SECONDS));return result.get();}
     private android.widget.ListView findList(View v){if(v instanceof android.widget.ListView)return (android.widget.ListView)v;if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++){android.widget.ListView found=findList(((ViewGroup)v).getChildAt(i));if(found!=null)return found;}return null;}
     private View findText(View v,String text){if(v instanceof android.widget.TextView&&text.contentEquals(((android.widget.TextView)v).getText()))return v;if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++){View found=findText(((ViewGroup)v).getChildAt(i),text);if(found!=null)return found;}return null;}
     private View find(View v,String description){if(description.contentEquals(v.getContentDescription()==null?"":v.getContentDescription()))return v;if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++){View found=find(((ViewGroup)v).getChildAt(i),description);if(found!=null)return found;}return null;}
